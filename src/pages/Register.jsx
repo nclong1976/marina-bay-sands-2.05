@@ -71,11 +71,14 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const user = localRegister({ account: u, password, payPassword: payPw, fullName: fullName.trim() });
+      const user = await localRegister({ account: u, password, payPassword: payPw, fullName: fullName.trim() });
       setSession(user);
       toast.success(t("register_success"), "Tài khoản đã được tạo");
-      // Tự đăng nhập sau đăng ký: chuyển về returnTo (mặc định /) để hỗ trợ luồng OAuth consent.
-      navigate(returnTo, { replace: true });
+      
+      // Chuyển về returnTo nếu hợp lệ và không phải trang auth, mặc định về /dashboard
+      const isAuthPage = returnTo === "/login" || returnTo === "/register" || returnTo === "/";
+      const dest = returnTo && !isAuthPage ? returnTo : "/dashboard";
+      navigate(dest, { replace: true });
     } catch (err) {
       toast({ title: "Đăng ký thất bại", description: err.message || "Không thể tạo tài khoản", variant: "destructive" });
     } finally {

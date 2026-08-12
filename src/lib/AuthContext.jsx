@@ -107,7 +107,10 @@ export const AuthProvider = ({ children }) => {
       try {
         const users = localListUsers();
         const currentInDb = users.find(
-          (u) => u.id === user.id || u.account?.toLowerCase() === user.account?.toLowerCase()
+          (u) =>
+            u &&
+            ((user.id && u.id === user.id) ||
+              (user.account && u.account && u.account.toLowerCase() === user.account.toLowerCase()))
         );
         if (currentInDb && currentInDb.locked) {
           toast({

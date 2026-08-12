@@ -30,9 +30,13 @@ cp .env.example .env.local
 
 ## Environment Configuration
 
-### Production Variables (.env.local)
+### Production Variables (.env.local / Hosting Environment Variables)
 
 ```env
+# Supabase Cloud Synchronization (BẮT BUỘC để đồng bộ đa thiết bị / Multi-Device Login)
+VITE_SUPABASE_URL=https://vqesonokldxbmaaaqnsv.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_XNowX45m2qffbZHvy2sUPw_MoP3d2Lu
+
 # Base44 Configuration - FROM YOUR BASE44 DASHBOARD
 VITE_BASE44_APP_ID=your_production_app_id
 VITE_BASE44_APP_BASE_URL=https://your-app.base44.app
