@@ -3,7 +3,7 @@ import React from "react";
 export class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, showDetails: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -19,8 +19,17 @@ export class ErrorBoundary extends React.Component {
     window.location.href = "/";
   };
 
+  handleClearCacheAndReload = () => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch { /* ignore */ }
+    window.location.href = "/";
+  };
+
   render() {
     if (this.state.hasError) {
+      const errMsg = this.state.error?.message || String(this.state.error || "Lỗi không xác định");
       return (
         <div className="min-h-screen bg-[#0A0E1A] text-white flex flex-col items-center justify-center p-6 text-center">
           <div className="w-16 h-16 rounded-full bg-red-500/20 border border-red-500/50 flex items-center justify-center mb-4">
@@ -29,10 +38,24 @@ export class ErrorBoundary extends React.Component {
             </svg>
           </div>
           <h2 className="text-xl font-bold mb-2 text-amber-200">Đã có lỗi xảy ra</h2>
-          <p className="text-sm text-gray-400 max-w-sm mb-6">
-            Hệ thống gặp sự cố không mong muốn. Vui lòng tải lại trang hoặc quay lại trang chủ.
+          <p className="text-sm text-gray-400 max-w-sm mb-4">
+            Hệ thống gặp sự cố không mong muốn. Vui lòng tải lại trang hoặc xóa dữ liệu duyệt web để thử lại.
           </p>
-          <div className="flex gap-3">
+
+          {/* Chi tiết lỗi */}
+          <div className="max-w-md w-full mb-6 bg-red-950/40 border border-red-900/50 rounded-lg p-3 text-left">
+            <div className="flex justify-between items-center cursor-pointer select-none" onClick={() => this.setState((s) => ({ showDetails: !s.showDetails }))}>
+              <span className="text-xs font-mono text-red-300 truncate">Chi tiết lỗi: {errMsg}</span>
+              <span className="text-xs text-gray-400 underline ml-2 shrink-0">{this.state.showDetails ? "Ẩn" : "Xem"}</span>
+            </div>
+            {this.state.showDetails && (
+              <pre className="mt-2 text-[11px] font-mono text-red-200/90 whitespace-pre-wrap break-all max-h-40 overflow-y-auto bg-black/40 p-2 rounded">
+                {this.state.error?.stack || errMsg}
+              </pre>
+            )}
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-3">
             <button
               onClick={this.handleReload}
               className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-semibold rounded-lg text-sm transition-all"
@@ -44,6 +67,12 @@ export class ErrorBoundary extends React.Component {
               className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 font-semibold rounded-lg text-sm transition-all border border-gray-700"
             >
               Tải Lại Trang
+            </button>
+            <button
+              onClick={this.handleClearCacheAndReload}
+              className="px-5 py-2.5 bg-red-900/50 hover:bg-red-800/60 text-red-200 font-semibold rounded-lg text-sm transition-all border border-red-700/50"
+            >
+              Xóa Cache & Đăng Nhập Lại
             </button>
           </div>
         </div>
