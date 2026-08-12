@@ -215,22 +215,35 @@ export const spSendChatMessage = async (msg) => {
 export const spSubscribeChat = (onNewMessage) => {
   if (!isSupabaseConfigured() || !supabase) return () => {};
 
-  const channel = supabase
-    .channel('public:chat_messages')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-      (payload) => {
-        if (payload.new) {
-          onNewMessage(payload.new);
+  try {
+    const channelId = `ch_chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          if (payload.new) {
+            onNewMessage(payload.new);
+          }
         }
-      }
-    )
-    .subscribe();
+      );
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    channel.subscribe();
+
+    return () => {
+      try {
+        if (supabase && channel) {
+          supabase.removeChannel(channel);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch (e) {
+    console.warn('Supabase chat realtime subscribe notice:', e?.message);
+    return () => {};
+  }
 };
 
 /**
@@ -255,22 +268,36 @@ export const spFetchBanners = async () => {
 export const spSubscribeUserProfile = (userId, onProfileChange) => {
   if (!isSupabaseConfigured() || !supabase || !userId) return () => {};
 
-  const channel = supabase
-    .channel(`public:users_profile:${userId}`)
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'users_profile' },
-      (payload) => {
-        if (payload.new && (payload.new.id === userId || payload.new.account === userId)) {
-          onProfileChange(payload.new);
+  try {
+    const safeUid = String(userId).replace(/[^a-zA-Z0-9_-]/g, '');
+    const channelId = `ch_user_${safeUid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'users_profile' },
+        (payload) => {
+          if (payload.new && (payload.new.id === userId || payload.new.account === userId)) {
+            onProfileChange(payload.new);
+          }
         }
-      }
-    )
-    .subscribe();
+      );
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    channel.subscribe();
+
+    return () => {
+      try {
+        if (supabase && channel) {
+          supabase.removeChannel(channel);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch (e) {
+    console.warn('Supabase user profile realtime subscribe notice:', e?.message);
+    return () => {};
+  }
 };
 
 /**
