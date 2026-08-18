@@ -2,6 +2,10 @@
 // Provides real-time synchronization across client and admin components.
 import { emitSocketEvent } from './socket';
 import { queryClientInstance } from './query-client';
+import { isSupabaseConfigured } from './supabase';
+import { spGetAppSetting, spSetAppSetting } from './supabaseService';
+
+const SETTING_KEY = 'game_configs';
 
 const STORAGE_KEY = "sands_game_store_config";
 const AUDIT_LOG_KEY = "sands_game_audit_log";
@@ -191,7 +195,7 @@ export const getGameConfig = (gameId) => {
   };
 };
 
-export const saveGameConfigs = (configs) => {
+export const saveGameConfigs = (configs, fromRemote = false) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
   } catch {
@@ -226,7 +230,38 @@ export const saveGameConfigs = (configs) => {
   } catch {
     /* ignore */
   }
+
+  // 5. Đẩy cấu hình lên Supabase — nguồn dữ liệu dùng để mọi thiết bị người dùng
+  // (không chỉ máy Admin) đọc được cùng một cấu hình game trong thời gian thực.
+  // Bỏ qua khi chính bản thân hàm này được gọi để ÁP DỤNG cấu hình vừa kéo VỀ từ
+  // Supabase (fromRemote=true), tránh vòng lặp đẩy lên rồi lại kéo về vô ích.
+  if (!fromRemote && isSupabaseConfigured()) {
+    spSetAppSetting(SETTING_KEY, configs).catch(() => {});
+  }
 };
+
+// Kéo cấu hình mới nhất từ Supabase và áp dụng cục bộ nếu khác với bản đang có —
+// đây là cơ chế khiến thay đổi của Admin (bật/tắt game, đổi tỷ lệ, bảo trì...) thực
+// sự tới được MỌI thiết bị người dùng, không chỉ riêng máy Admin.
+const pullGameConfigsFromSupabase = async () => {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const row = await spGetAppSetting(SETTING_KEY);
+    if (row && row.value && Object.keys(row.value).length > 0) {
+      const current = getGameConfigs();
+      if (JSON.stringify(current) !== JSON.stringify(row.value)) {
+        saveGameConfigs(row.value, true);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+};
+
+if (typeof window !== "undefined") {
+  pullGameConfigsFromSupabase();
+  setInterval(pullGameConfigsFromSupabase, 5000);
+}
 
 export const updateGameConfig = (gameId, patch, adminMeta = {}) => {
   const configs = getGameConfigs();

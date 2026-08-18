@@ -2,6 +2,8 @@
 import { localListUsers } from "@/lib/localAuth";
 import { toast } from "@/components/ui/use-toast";
 import { queryClientInstance } from "@/lib/query-client";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { spListUsers, spInsertNotifications, spFetchUserNotifications } from "@/lib/supabaseService";
 
 const inboxKey = (userId) => `stargame_notif_${userId}`;
 const ADMIN_LOG_KEY = "stargame_notif_adminlog";
@@ -57,24 +59,39 @@ export const removeNotification = (userId, id) =>
   write(userId, read(userId).filter((n) => n.id !== id));
 export const clearAll = (userId) => write(userId, []);
 
-// Gửi tới nhóm người dùng cụ thể (Group Broadcast).
-export const sendToGroup = (group, n) => {
-  const users = localListUsers();
-  let targets = [];
-
-  if (group === "all") {
-    targets = users;
-  } else if (group === "active") {
-    targets = users.filter((u) => !u.locked);
-  } else if (group === "has_balance") {
-    targets = users.filter((u) => (u.balance || 0) > 0);
-  } else if (group === "locked") {
-    targets = users.filter((u) => u.locked);
-  } else if (group === "admins") {
-    targets = users.filter((u) => u.role === "admin");
-  } else {
-    targets = users;
+// Lấy danh sách người dùng đầy đủ để chọn đối tượng nhận thông báo — ưu tiên Supabase
+// (nguồn chuẩn, có TẤT CẢ user dù đăng ký ở thiết bị nào), chỉ rơi về cache cục bộ của
+// máy Admin (có thể thiếu) nếu Supabase chưa cấu hình hoặc lỗi mạng.
+const resolveNotificationTargets = async (group) => {
+  let users = localListUsers();
+  if (isSupabaseConfigured()) {
+    try {
+      const spUsers = await spListUsers();
+      if (Array.isArray(spUsers) && spUsers.length > 0) {
+        users = spUsers.map((u) => ({
+          id: u.id,
+          account: u.account,
+          email: u.email,
+          role: u.role,
+          balance: Number(u.balance) || 0,
+          locked: !!u.locked,
+        }));
+      }
+    } catch { /* ignore — dùng danh sách cục bộ nếu Supabase lỗi */ }
   }
+
+  if (group === "active") return users.filter((u) => !u.locked);
+  if (group === "has_balance") return users.filter((u) => (u.balance || 0) > 0);
+  if (group === "locked") return users.filter((u) => u.locked);
+  if (group === "admins") return users.filter((u) => u.role === "admin");
+  return users;
+};
+
+// Gửi tới nhóm người dùng cụ thể (Group Broadcast). Đẩy thẳng lên Supabase để thông
+// báo chuyển phát THẬT tới máy của người dùng — trước đây chỉ ghi vào localStorage
+// của chính máy Admin nên không ai khác thấy được, dù giao diện báo "gửi thành công".
+export const sendToGroup = async (group, n) => {
+  const targets = await resolveNotificationTargets(group);
 
   const logEntry = logAdmin({
     ...n,
@@ -83,13 +100,26 @@ export const sendToGroup = (group, n) => {
     recipientCount: targets.length,
   });
 
-  targets.forEach((u) => {
-    pushNotification(u.id, {
-      ...n,
-      broadcastId: logEntry.id,
-      audience: group,
-    });
+  const rows = targets.map((u) => ({
+    id: genId(),
+    userId: u.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
+    broadcastId: logEntry.id,
+    audience: group,
+  }));
+
+  // Ghi cục bộ ngay (không dùng pushNotification để tránh spam toast cho từng người
+  // nhận trên chính màn hình Admin) — chỉ có tác dụng thật với user đã có trong cache
+  // của máy Admin; việc chuyển phát thật sự nằm ở bước đẩy lên Supabase bên dưới.
+  rows.forEach((r) => {
+    write(r.userId, [{ ...r, time: new Date().toISOString(), read: false }, ...read(r.userId)]);
   });
+
+  if (isSupabaseConfigured()) {
+    spInsertNotifications(rows).catch(() => {});
+  }
 
   return targets.length;
 };
@@ -100,9 +130,10 @@ export const broadcastNotification = (n) => {
 };
 
 // Gửi đích danh theo username (account).
-export const sendToUser = (account, n) => {
+export const sendToUser = async (account, n) => {
   const acc = String(account || "").trim().toLowerCase();
-  const u = localListUsers().find((x) => x.account.toLowerCase() === acc || x.id === account || x.email?.toLowerCase() === acc);
+  const targets = await resolveNotificationTargets("all");
+  const u = targets.find((x) => (x.account || "").toLowerCase() === acc || x.id === account || (x.email || "").toLowerCase() === acc);
   if (!u) return false;
 
   const logEntry = logAdmin({
@@ -112,13 +143,59 @@ export const sendToUser = (account, n) => {
     recipientCount: 1,
   });
 
-  pushNotification(u.id, {
-    ...n,
+  const row = {
+    id: genId(),
+    userId: u.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
     broadcastId: logEntry.id,
     audience: "user",
-  });
+  };
+  write(u.id, [{ ...row, time: new Date().toISOString(), read: false }, ...read(u.id)]);
+
+  if (isSupabaseConfigured()) {
+    spInsertNotifications([row]).catch(() => {});
+  }
 
   return true;
+};
+
+// Khôi phục thông báo từ Supabase vào hộp thư cục bộ của 1 người dùng — để thông báo
+// Admin đã gửi hiển thị đúng ngay cả khi mở trên thiết bị/trình duyệt chưa từng nhận.
+export const hydrateUserNotifications = async (userId) => {
+  if (!isSupabaseConfigured() || !userId) return;
+  try {
+    const rows = await spFetchUserNotifications(userId);
+    if (!rows || rows.length === 0) return;
+
+    const existing = read(userId);
+    const existingIds = new Set(existing.map((n) => n.id));
+    let changed = false;
+    const merged = [...existing];
+
+    rows.forEach((row) => {
+      if (!existingIds.has(row.id)) {
+        merged.push({
+          id: row.id,
+          type: row.type || "info",
+          title: row.title || "",
+          body: row.body || "",
+          broadcastId: row.broadcast_id,
+          audience: row.audience,
+          read: !!row.read,
+          time: row.created_at,
+        });
+        existingIds.add(row.id);
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      merged.sort((a, b) => new Date(b.time) - new Date(a.time));
+      write(userId, merged);
+    }
+  } catch { /* ignore */ }
 };
 
 // Thông báo cho các tài khoản quản trị (dùng khi người dùng nạp tiền…).

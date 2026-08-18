@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     username TEXT NOT NULL,
     message TEXT NOT NULL,
     avatar TEXT,
+    -- Ai gửi tin nhắn này: 'user', 'admin', hoặc 'super_admin'. Bắt buộc để phân biệt
+    -- đúng bên trái/phải trên giao diện chat khi tin nhắn đồng bộ qua thiết bị khác.
+    sender_role TEXT NOT NULL DEFAULT 'user',
+    is_secret BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -82,12 +86,37 @@ CREATE TABLE IF NOT EXISTS public.banners (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7. APP SETTINGS TABLE (cấu hình toàn hệ thống do Admin điều khiển: game config,
+-- banner config, cài đặt chung — lưu dạng JSON blob theo từng key, đồng bộ real-time
+-- xuống mọi thiết bị người dùng thay vì chỉ nằm trong localStorage của Admin).
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. NOTIFICATIONS TABLE (thông báo Admin gửi tới từng người dùng cụ thể — bắt buộc
+-- để thông báo hàng loạt/nhóm/cá nhân thực sự tới được máy của người dùng thật).
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT DEFAULT 'info',
+    title TEXT,
+    body TEXT,
+    broadcast_id TEXT,
+    audience TEXT,
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- INDEXES FOR PERFORMANCE
 CREATE INDEX IF NOT EXISTS idx_users_profile_account ON public.users_profile(account);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON public.transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON public.transactions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_withdraw_requests_status ON public.withdraw_requests(status);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON public.chat_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON public.notifications(created_at DESC);
 
 -- SEED DEFAULT ADMIN USERS IF NOT EXISTS
 INSERT INTO public.users_profile (id, account, full_name, role, balance, pay_password, password_hash)
@@ -103,6 +132,8 @@ ALTER TABLE public.withdraw_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.game_bets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- PERMISSIVE RLS POLICIES FOR CLIENT-SIDE APP ACCESS
 DROP POLICY IF EXISTS "Allow public read/write users_profile" ON public.users_profile;
@@ -111,6 +142,8 @@ DROP POLICY IF EXISTS "Allow public read/write withdraw_requests" ON public.with
 DROP POLICY IF EXISTS "Allow public read/write game_bets" ON public.game_bets;
 DROP POLICY IF EXISTS "Allow public read/write chat_messages" ON public.chat_messages;
 DROP POLICY IF EXISTS "Allow public read/write banners" ON public.banners;
+DROP POLICY IF EXISTS "Allow public read/write app_settings" ON public.app_settings;
+DROP POLICY IF EXISTS "Allow public read/write notifications" ON public.notifications;
 
 CREATE POLICY "Allow public read/write users_profile" ON public.users_profile FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read/write transactions" ON public.transactions FOR ALL USING (true) WITH CHECK (true);
@@ -118,9 +151,11 @@ CREATE POLICY "Allow public read/write withdraw_requests" ON public.withdraw_req
 CREATE POLICY "Allow public read/write game_bets" ON public.game_bets FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read/write chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read/write banners" ON public.banners FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read/write app_settings" ON public.app_settings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read/write notifications" ON public.notifications FOR ALL USING (true) WITH CHECK (true);
 
 -- ENABLE SUPABASE REALTIME REPLICATION FOR CHAT & TRANSACTIONS
 BEGIN;
   DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE public.chat_messages, public.users_profile, public.transactions, public.withdraw_requests, public.banners;
+  CREATE PUBLICATION supabase_realtime FOR TABLE public.chat_messages, public.users_profile, public.transactions, public.withdraw_requests, public.banners, public.app_settings, public.notifications;
 COMMIT;

@@ -6,16 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Upload, Save } from "lucide-react";
 import { Panel, inputCls } from "../ui";
 import { getBannerConfig, saveBannerConfig, extractZipArchive, readFileAsDataUrl } from "@/lib/bannerStore";
-
-const KEY = "sands_settings";
-const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
-const saveSettings = (s) => localStorage.setItem(KEY, JSON.stringify(s));
+import { getSiteSettings, saveSiteSettings, subscribeSiteSettings } from "@/lib/siteSettingsStore";
 
 export default function Settings() {
   const { toast } = useToast();
-  const [s, setS] = useState({ announcement: "", banner: "", language: "vi", atomRate: 1, maintenance: false, ...load() });
+  const [s, setS] = useState(() => getSiteSettings());
   const [halls, setHalls] = useState([]);
   const [bannerType, setBannerType] = useState("video");
+
+  // Cập nhật giao diện ngay khi cấu hình được kéo về từ Supabase (vd Admin khác vừa lưu)
+  useEffect(() => {
+    const unsub = subscribeSiteSettings((latest) => setS(latest));
+    return unsub;
+  }, []);
 
   useEffect(() => {
     const cfg = getBannerConfig();
@@ -29,7 +32,7 @@ export default function Settings() {
   const set = (k, v) => setS((p) => ({ ...p, [k]: v }));
 
   const save = () => {
-    saveSettings(s);
+    saveSiteSettings(s);
 
     // Also sync to bannerStore
     if (s.banner) {

@@ -57,7 +57,7 @@ export default function Notifications() {
     load();
   }, [currentUser?.role]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const cleanTitle = title.trim();
     const cleanBody = body.trim();
 
@@ -83,7 +83,7 @@ export default function Notifications() {
           variant: "destructive",
         });
       }
-      const ok = sendToUser(target.trim(), payload);
+      const ok = await sendToUser(target.trim(), payload);
       if (!ok) {
         return toast({
           title: "Gửi thất bại",
@@ -96,7 +96,7 @@ export default function Notifications() {
         description: `Đã gửi thông báo đích danh tới [${target.trim()}]`,
       });
     } else {
-      const count = sendToGroup(audience, payload);
+      const count = await sendToGroup(audience, payload);
       const groupLabels = {
         all: "Tất cả người dùng",
         active: "Người dùng đang hoạt động",

@@ -4,8 +4,11 @@ import JSZip from "jszip";
 import promoBannerImg from "@/assets/banner_khuyen_mai.jpg";
 import { emitSocketEvent } from "./socket";
 import { queryClientInstance } from "./query-client";
+import { isSupabaseConfigured } from "./supabase";
+import { spGetAppSetting, spSetAppSetting } from "./supabaseService";
 
 const STORAGE_KEY = "sands_banner_config";
+const SETTING_KEY = "banner_config";
 
 export const PROMO_BANNER_URL = promoBannerImg;
 
@@ -166,7 +169,7 @@ export const getBannerConfig = () => {
   }
 };
 
-export const saveBannerConfig = (config) => {
+export const saveBannerConfig = (config, fromRemote = false) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch {
@@ -198,6 +201,13 @@ export const saveBannerConfig = (config) => {
     /* ignore */
   }
 
+  // Đẩy cấu hình banner lên Supabase để mọi thiết bị người dùng thấy đúng banner
+  // Admin vừa đổi, không chỉ riêng máy Admin. Bỏ qua khi đang áp dụng dữ liệu vừa
+  // kéo VỀ từ Supabase để tránh vòng lặp.
+  if (!fromRemote && isSupabaseConfigured()) {
+    spSetAppSetting(SETTING_KEY, config).catch(() => {});
+  }
+
   return config;
 };
 
@@ -205,6 +215,28 @@ export const subscribeBannerConfig = (cb) => {
   listeners.add(cb);
   return () => listeners.delete(cb);
 };
+
+// Kéo cấu hình banner mới nhất từ Supabase — khiến thay đổi banner của Admin thực sự
+// tới được mọi thiết bị người dùng, không chỉ riêng máy Admin.
+const pullBannerConfigFromSupabase = async () => {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const row = await spGetAppSetting(SETTING_KEY);
+    if (row && row.value && Array.isArray(row.value.banners)) {
+      const current = getBannerConfig();
+      if (JSON.stringify(current) !== JSON.stringify(row.value)) {
+        saveBannerConfig(row.value, true);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+};
+
+if (typeof window !== "undefined") {
+  pullBannerConfigFromSupabase();
+  setInterval(pullBannerConfigFromSupabase, 5000);
+}
 
 // Helper: Convert File to DataURL or Web URL
 export const readFileAsDataUrl = (file) => {

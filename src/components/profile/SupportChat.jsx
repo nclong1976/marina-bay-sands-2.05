@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button";
 import { Image as ImageIcon, Send, Headphones, CheckCircle2, Sparkles, ShieldCheck } from "lucide-react";
 import { Image } from "@/components/ui/image";
-import { getUserThread, addChatMessage, subscribeChat } from "@/lib/localChat";
+import { getUserThread, addChatMessage, subscribeChat, hydrateUserChatHistory } from "@/lib/localChat";
 import { playChatMessageSound } from "@/lib/soundEffects";
 
 const QUICK_REPLIES = [
@@ -51,7 +51,10 @@ export default function SupportChat({ open, onOpenChange }) {
 
   useEffect(() => {
     if (open && user) {
-      loadAndCheckGreeting();
+      // Khôi phục lịch sử chat thật từ Supabase trước (vd mở trên thiết bị/trình duyệt
+      // mới), rồi mới kiểm tra lời chào — tránh gửi lại lời chào trùng lặp khi hội
+      // thoại cũ đã tồn tại trên server nhưng chưa có trong localStorage của máy này.
+      hydrateUserChatHistory(user.id).finally(() => loadAndCheckGreeting());
     } else if (user) {
       setMessages(getUserThread(user.id));
     }

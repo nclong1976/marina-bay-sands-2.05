@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import * as notif from "@/lib/localNotifications";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const NotificationContext = createContext(null);
 
@@ -43,11 +44,22 @@ export function NotificationProvider({ children }) {
       refreshNotifs();
     }, 1000);
 
+    // Khôi phục + kéo định kỳ thông báo Admin đã gửi từ Supabase — đây là bước bắt
+    // buộc để thông báo thật sự tới được máy người dùng (trước đây Admin chỉ ghi vào
+    // localStorage của chính máy Admin nên người dùng không bao giờ nhận được).
+    let pollTimer;
+    if (isSupabaseConfigured()) {
+      const pullNotifs = () => notif.hydrateUserNotifications(userId).then(refreshNotifs);
+      pullNotifs();
+      pollTimer = setInterval(pullNotifs, 5000);
+    }
+
     return () => {
       unsub();
       window.removeEventListener("stargame_notif_update", onCustomEvent);
       window.removeEventListener("storage", onStorage);
       clearInterval(timer);
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, [userId, refreshNotifs]);
 

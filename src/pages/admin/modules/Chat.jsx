@@ -11,6 +11,7 @@ import {
   deleteChatMessage,
   toggleSecretChatUser,
   isSecretChatUser,
+  hydrateAdminChatHistory,
 } from "@/lib/localChat";
 import { localListUsers } from "@/lib/localAuth";
 import { useAuth } from "@/lib/AuthContext";
@@ -36,6 +37,9 @@ export default function Chat() {
 
   useEffect(() => {
     load();
+    // Khôi phục các hội thoại gần đây từ Supabase — để Admin thấy đúng tin nhắn của
+    // người dùng dù họ nhắn từ thiết bị nào, kể cả khi Admin mới mở trình duyệt này lần đầu.
+    hydrateAdminChatHistory().then(load);
     const unsub = subscribeChat(load);
     return () => unsub && unsub();
   }, [currentUser?.role]);

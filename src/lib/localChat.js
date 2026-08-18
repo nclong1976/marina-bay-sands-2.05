@@ -1,6 +1,6 @@
 import { triggerAdminNotification } from "@/lib/adminNotifications";
 import { isSupabaseConfigured } from "./supabase";
-import { spSendChatMessage, spSubscribeChat } from "./supabaseService";
+import { spSendChatMessage, spSubscribeChat, spFetchUserChatMessages, spFetchChatMessages } from "./supabaseService";
 import { emitSocketEvent } from "./socket";
 import { queryClientInstance } from "./query-client";
 
@@ -23,6 +23,56 @@ const write = (msgs) => {
   listeners.forEach((l) => l(read()));
   try {
     queryClientInstance.invalidateQueries({ queryKey: ["chatMessages"] });
+  } catch { /* ignore */ }
+};
+
+// Chuẩn hoá 1 hàng dữ liệu từ Supabase (realtime hoặc fetch lịch sử) về đúng hình dạng
+// tin nhắn cục bộ — bắt buộc phải map `sender_role` để giao diện chat biết tin nhắn
+// này của User hay Admin, tránh hiển thị nhầm bên trái/phải khi đồng bộ từ thiết bị khác.
+const mapSupabaseRow = (row) => ({
+  id: row.id,
+  userId: row.user_id,
+  userEmail: "",
+  userName: row.username || "",
+  senderRole: row.sender_role || "user",
+  body: row.message || "",
+  image: "",
+  isSecret: !!row.is_secret,
+  created_date: row.created_at,
+});
+
+// Gộp các hàng từ Supabase vào kho cục bộ, bỏ qua tin nhắn đã có sẵn (theo id).
+const mergeSupabaseRows = (rows) => {
+  if (!rows || rows.length === 0) return;
+  const msgs = read();
+  const existingIds = new Set(msgs.map((m) => m.id));
+  let changed = false;
+  rows.forEach((row) => {
+    if (!existingIds.has(row.id)) {
+      msgs.push(mapSupabaseRow(row));
+      existingIds.add(row.id);
+      changed = true;
+    }
+  });
+  if (changed) write(msgs);
+};
+
+// Khôi phục toàn bộ lịch sử chat của 1 người dùng từ Supabase — gọi khi mở khung chat
+// để hội thoại cũ hiện đúng ngay cả khi mở trên thiết bị/trình duyệt chưa từng chat.
+export const hydrateUserChatHistory = async (userId) => {
+  if (!isSupabaseConfigured() || !userId) return;
+  try {
+    const rows = await spFetchUserChatMessages(userId);
+    mergeSupabaseRows(rows);
+  } catch { /* ignore */ }
+};
+
+// Khôi phục các hội thoại gần đây trên toàn hệ thống cho màn hình Admin.
+export const hydrateAdminChatHistory = async () => {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const rows = await spFetchChatMessages(500);
+    mergeSupabaseRows(rows);
   } catch { /* ignore */ }
 };
 
@@ -155,6 +205,8 @@ export const addChatMessage = ({ userId, userEmail, userName, senderRole, body, 
       userId: userId,
       username: userName || userEmail || 'User',
       message: body || (image ? '[Hình ảnh]' : ''),
+      senderRole: senderRole || 'user',
+      isSecret: false,
     }).catch(() => {});
   }
 
@@ -192,17 +244,7 @@ export const subscribeChat = (cb) => {
   if (isSupabaseConfigured()) {
     unsubSupabase = spSubscribeChat((spMsg) => {
       if (spMsg) {
-        const msgs = read();
-        if (!msgs.some((m) => m.id === spMsg.id)) {
-          msgs.push({
-            id: spMsg.id,
-            userId: spMsg.user_id,
-            userName: spMsg.username,
-            body: spMsg.message,
-            created_date: spMsg.created_at,
-          });
-          write(msgs);
-        }
+        mergeSupabaseRows([spMsg]);
       }
     });
   }

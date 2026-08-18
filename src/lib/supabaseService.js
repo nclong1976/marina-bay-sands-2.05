@@ -240,6 +240,25 @@ export const spFetchChatMessages = async (limit = 50) => {
   return data ? data.reverse() : [];
 };
 
+/**
+ * Toàn bộ lịch sử chat của MỘT người dùng cụ thể — dùng để khôi phục hội thoại khi
+ * người dùng mở khung chat trên thiết bị mới (khác với spFetchChatMessages ở trên,
+ * vốn chỉ lấy N tin nhắn gần nhất trên TOÀN hệ thống, phù hợp cho màn hình Admin).
+ */
+export const spFetchUserChatMessages = async (userId, limit = 300) => {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) return null;
+  return data || [];
+};
+
 export const spSendChatMessage = async (msg) => {
   if (!isSupabaseConfigured()) return null;
 
@@ -249,6 +268,10 @@ export const spSendChatMessage = async (msg) => {
     username: msg.username || msg.sender || 'Khách',
     message: msg.text || msg.message || '',
     avatar: msg.avatar || '',
+    // Bắt buộc để phía nhận (thiết bị khác) biết tin nhắn này của User hay của
+    // Admin/Super Admin, tránh hiển thị nhầm bên trái/phải trên giao diện chat.
+    sender_role: msg.senderRole || 'user',
+    is_secret: !!msg.isSecret,
     created_at: new Date().toISOString(),
   };
 
@@ -498,4 +521,114 @@ export const spCreateWithdrawRequest = async (req) => {
     console.error('Supabase create withdraw request error:', error);
   }
   return data;
+};
+
+/**
+ * App Settings (Multi-Device) — cấu hình toàn hệ thống do Admin điều khiển (game
+ * config, banner config, cài đặt chung), lưu dạng JSON blob theo key, để mọi thiết
+ * bị người dùng đọc được cùng một cấu hình thay vì chỉ nằm trong localStorage của Admin.
+ */
+export const spGetAppSetting = async (key) => {
+  if (!isSupabaseConfigured() || !key) return null;
+
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('*')
+    .eq('key', key)
+    .maybeSingle();
+
+  if (error) return null;
+  return data;
+};
+
+export const spSetAppSetting = async (key, value) => {
+  if (!isSupabaseConfigured() || !key) return null;
+
+  const row = { key, value, updated_at: new Date().toISOString() };
+
+  // Không dùng upsert()/onConflict — xem ghi chú tại spSyncGameBet ở trên: một số
+  // môi trường Supabase có thể chưa có ràng buộc UNIQUE thật trên cột key, khiến
+  // upsert báo lỗi 42P10. Tự làm UPSERT ở tầng ứng dụng: UPDATE trước, không có
+  // dòng nào khớp thì INSERT mới.
+  const { data: updated, error: updateError } = await supabase
+    .from('app_settings')
+    .update(row)
+    .eq('key', key)
+    .select()
+    .maybeSingle();
+
+  if (updateError) {
+    console.error('Supabase set app setting (update) error:', updateError);
+  }
+  if (updated) return updated;
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('app_settings')
+    .insert([row])
+    .select()
+    .maybeSingle();
+
+  if (insertError) {
+    console.error('Supabase set app setting (insert) error:', insertError);
+  }
+  return inserted;
+};
+
+export const spSubscribeAppSetting = (key, onChange) => {
+  if (!isSupabaseConfigured() || !supabase || !key) return () => {};
+
+  return subscribeShared(`public:app_settings:${key}`, (emit) =>
+    supabase
+      .channel(`public:app_settings:${key}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'app_settings', filter: `key=eq.${key}` },
+        (payload) => {
+          if (payload.new) emit(payload.new);
+        }
+      )
+      .subscribe()
+  )(onChange);
+};
+
+/**
+ * Notifications (Multi-Device) — thông báo Admin gửi tới từng người dùng cụ thể,
+ * lưu trên Supabase để chuyển phát thật tới máy của người dùng (trước đây chỉ ghi
+ * vào localStorage của chính máy Admin nên không bao giờ tới được người nhận thật).
+ */
+export const spInsertNotifications = async (rows) => {
+  if (!isSupabaseConfigured() || !rows || rows.length === 0) return null;
+
+  const payload = rows.map((n) => ({
+    id: n.id,
+    user_id: n.userId,
+    type: n.type || 'info',
+    title: n.title || '',
+    body: n.body || '',
+    broadcast_id: n.broadcastId || null,
+    audience: n.audience || null,
+    read: false,
+    created_at: n.created_at || new Date().toISOString(),
+  }));
+
+  const { data, error } = await supabase.from('notifications').insert(payload).select();
+
+  if (error) {
+    console.error('Supabase insert notifications error:', error);
+  }
+  return data;
+};
+
+export const spFetchUserNotifications = async (userId, limit = 100) => {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+  return data || [];
 };
