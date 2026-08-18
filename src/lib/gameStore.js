@@ -191,7 +191,7 @@ export const getGameConfig = (gameId) => {
     status: "active",
     timerDuration: 299,
     intermission: 10,
-    odds: { tai_xiu: 0.98, chan_le: 0.98, hoa: 95, cap_so: 12 },
+    odds: { tai_xiu: 1.98, chan_le: 1.98, hoa: 95, cap_so: 12 },
   };
 };
 
@@ -222,11 +222,15 @@ export const saveGameConfigs = (configs, fromRemote = false) => {
     }
   }
 
-  // 4. Update TanStack Query cache & Emit Socket.io Event
+  // 4. Update TanStack Query cache & Emit Socket.io Event — chỉ phát khi đây là thay
+  // đổi THẬT do chính máy này thực hiện, không phát lại khi chỉ đang áp dụng dữ liệu
+  // vừa kéo VỀ từ Supabase (fromRemote=true), tránh dội sự kiện qua lại không cần thiết.
   try {
     queryClientInstance.setQueryData(['gameConfigs'], configs);
     queryClientInstance.invalidateQueries({ queryKey: ['gameConfigs'] });
-    emitSocketEvent('game:config_change', { configs });
+    if (!fromRemote) {
+      emitSocketEvent('game:config_change', { configs });
+    }
   } catch {
     /* ignore */
   }

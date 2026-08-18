@@ -192,11 +192,14 @@ export const saveBannerConfig = (config, fromRemote = false) => {
     }
   }
 
-  // TanStack Query & Socket.io Cache Sync
+  // TanStack Query & Socket.io Cache Sync — chỉ phát Socket.io khi đây là thay đổi
+  // THẬT do chính máy này thực hiện, không phát lại khi chỉ áp dụng dữ liệu kéo về.
   try {
     queryClientInstance.setQueryData(["banners"], config);
     queryClientInstance.invalidateQueries({ queryKey: ["banners"] });
-    emitSocketEvent("banner:change", { config });
+    if (!fromRemote) {
+      emitSocketEvent("banner:change", { config });
+    }
   } catch {
     /* ignore */
   }

@@ -21,7 +21,9 @@ import {
   FolderArchive,
   FileCheck,
   Maximize2,
-  Minimize2
+  Minimize2,
+  X,
+  Link as LinkIcon
 } from "lucide-react";
 import { Panel, inputCls, Badge } from "../ui";
 import {
@@ -298,6 +300,16 @@ export default function Banners() {
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
       await processBatchFiles(files);
+    }
+  };
+
+  // Kéo-thả trực tiếp vào khu vực xem trước trong modal Thêm/Sửa Banner (chỉ 1 file,
+  // gán thẳng vào banner đang chỉnh sửa thay vì thêm banner mới như khu vực upload hàng loạt).
+  const handleModalDrop = async (e) => {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      await handleUploadFile({ target: { files } }, "url");
     }
   };
 
@@ -713,69 +725,21 @@ export default function Banners() {
               </div>
             </div>
 
-            {/* Media Upload & URL Input */}
+            {/* Media Upload — khu vực tải ảnh/video và xem trước hợp nhất làm một, để
+                không còn hiện chuỗi base64 dài dằng dặc gây rối mắt trong ô nhập liệu,
+                và ảnh luôn tự hiện ra ngay khi chọn xong (không cần bước "giải nén" nào
+                thêm — trình duyệt tự đọc & hiển thị file ngay khi tải lên). */}
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-white/80">
-                  {form.type === "video" ? "URL hoặc File Video từ Máy" : "URL hoặc File Ảnh từ Máy"}
-                </label>
-                <span className="text-[11px] text-[#ffab40]">
-                  {form.type === "video" ? "MP4 / WebM" : "Hỗ trợ upload file đơn hoặc ZIP"}
-                </span>
-              </div>
+              <label className="text-xs font-semibold text-white/80 mb-1.5 block">
+                {form.type === "video" ? "Video Banner" : "Ảnh Banner"}
+              </label>
 
-              <div className="flex gap-2">
-                <input
-                  className={inputCls}
-                  value={form.url || ""}
-                  onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))}
-                  placeholder={form.type === "video" ? "https://domain.com/banner.mp4" : "https://domain.com/banner.png"}
-                />
-
-                <label className="h-9 px-3.5 rounded-lg bg-[#7033ff]/30 hover:bg-[#7033ff]/50 border border-[#7033ff]/50 text-xs font-semibold flex items-center gap-1.5 cursor-pointer whitespace-nowrap text-white transition-colors shrink-0">
-                  <Upload size={14} /> Tải từ máy
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept={form.type === "video" ? "video/*,.zip" : "image/*,.zip"}
-                    onChange={(e) => handleUploadFile(e, "url")}
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* Fit mode option */}
-            <div>
-              <label className="text-xs font-semibold text-white/80 mb-1 block">Chế độ hiển thị chữ & hình ảnh (Fit Mode)</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, objectFit: "cover" }))}
-                  className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                    form.objectFit === "cover" ? "bg-[#7033ff]/30 border-[#7033ff] text-white" : "bg-white/5 border-white/10 text-white/60"
-                  }`}
+              {form.url ? (
+                <div
+                  className="relative w-full h-44 rounded-xl overflow-hidden bg-black border border-white/10"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleModalDrop}
                 >
-                  <Maximize2 className="w-3.5 h-3.5" /> Cover (Phủ kín)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, objectFit: "contain" }))}
-                  className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                    form.objectFit === "contain" ? "bg-[#7033ff]/30 border-[#7033ff] text-white" : "bg-white/5 border-white/10 text-white/60"
-                  }`}
-                >
-                  <Minimize2 className="w-3.5 h-3.5" /> Contain (Toàn bộ chữ/ảnh)
-                </button>
-              </div>
-            </div>
-
-            {/* Live Admin Preview */}
-            {form.url && (
-              <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-1.5">
-                <p className="text-[11px] font-bold text-white/70 uppercase tracking-wider flex items-center gap-1">
-                  <Eye className="w-3.5 h-3.5 text-[#ffab40]" /> Xem trước Banner Live:
-                </p>
-                <div className="relative w-full h-40 rounded-lg overflow-hidden bg-black flex items-center justify-center border border-white/10">
                   {form.type === "video" ? (
                     <video
                       src={form.url}
@@ -805,9 +769,94 @@ export default function Banners() {
                       <p className="text-[10px] text-white/70">{form.subtitle}</p>
                     </div>
                   )}
+
+                  <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/70 hover:bg-black/90 border border-white/20 text-white text-[11px] font-semibold backdrop-blur-sm transition-colors">
+                      <Upload className="w-3 h-3" /> Đổi {form.type === "video" ? "video" : "ảnh"}
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept={form.type === "video" ? "video/*" : "image/*"}
+                        onChange={(e) => handleUploadFile(e, "url")}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, url: "" }))}
+                      title="Xoá ảnh/video"
+                      className="p-1.5 rounded-lg bg-black/70 hover:bg-red-500/80 border border-white/20 text-white transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <label
+                  className="flex flex-col items-center justify-center gap-2 w-full h-36 rounded-xl border-2 border-dashed border-white/15 hover:border-[#7033ff]/60 bg-white/[0.02] cursor-pointer transition-colors text-center px-4"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleModalDrop}
+                >
+                  {form.type === "video" ? (
+                    <Video className="w-6 h-6 text-white/40" />
+                  ) : (
+                    <ImageIcon className="w-6 h-6 text-white/40" />
+                  )}
+                  <div>
+                    <p className="text-xs font-semibold text-white">
+                      Kéo thả hoặc bấm để tải {form.type === "video" ? "video" : "ảnh"} từ máy
+                    </p>
+                    <p className="text-[11px] text-white/40 mt-0.5">
+                      {form.type === "video" ? "MP4, WebM" : "PNG, JPG, WEBP"}
+                    </p>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept={form.type === "video" ? "video/*,.zip" : "image/*,.zip"}
+                    onChange={(e) => handleUploadFile(e, "url")}
+                  />
+                </label>
+              )}
+
+              {/* Tuỳ chọn nâng cao: dán link URL có sẵn thay vì tải file — ẩn theo mặc
+                  định để không làm rối giao diện với đa số admin chỉ cần tải ảnh lên. */}
+              <details className="mt-2 group">
+                <summary className="text-[11px] text-white/40 hover:text-white/60 cursor-pointer select-none list-none flex items-center gap-1 marker:hidden">
+                  <LinkIcon className="w-3 h-3" /> Hoặc dán link URL có sẵn
+                </summary>
+                <input
+                  className={`${inputCls} mt-1.5`}
+                  value={form.url && !form.url.startsWith("data:") ? form.url : ""}
+                  onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))}
+                  placeholder={form.type === "video" ? "https://domain.com/banner.mp4" : "https://domain.com/banner.png"}
+                />
+              </details>
+            </div>
+
+            {/* Fit mode option */}
+            <div>
+              <label className="text-xs font-semibold text-white/80 mb-1 block">Chế độ hiển thị chữ & hình ảnh (Fit Mode)</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, objectFit: "cover" }))}
+                  className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    form.objectFit === "cover" ? "bg-[#7033ff]/30 border-[#7033ff] text-white" : "bg-white/5 border-white/10 text-white/60"
+                  }`}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" /> Cover (Phủ kín)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, objectFit: "contain" }))}
+                  className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    form.objectFit === "contain" ? "bg-[#7033ff]/30 border-[#7033ff] text-white" : "bg-white/5 border-white/10 text-white/60"
+                  }`}
+                >
+                  <Minimize2 className="w-3.5 h-3.5" /> Contain (Toàn bộ chữ/ảnh)
+                </button>
               </div>
-            )}
+            </div>
 
             {/* Video Options */}
             {form.type === "video" && (
