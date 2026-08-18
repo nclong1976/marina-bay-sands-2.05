@@ -104,7 +104,7 @@ const setSessionUser = (user) => {
 export const localRegister = async ({ account, password, payPassword, fullName }) => {
   const acc = (account || "").trim();
   const users = readUsers();
-  if (users.some((u) => u.account.toLowerCase() === acc.toLowerCase())) {
+  if (users.some((u) => u && u.account && u.account.toLowerCase() === acc.toLowerCase())) {
     throw new Error("Tài khoản đã tồn tại");
   }
 
@@ -145,7 +145,7 @@ const DEFAULT_ACCOUNTS = [
 ];
 
 const findDefault = (acc) =>
-  DEFAULT_ACCOUNTS.find((d) => d.account.toLowerCase() === acc.toLowerCase());
+  DEFAULT_ACCOUNTS.find((d) => d && d.account && d.account.toLowerCase() === acc.toLowerCase());
 
 // Đăng nhập bằng tài khoản + mật khẩu. Trả về user và tự lưu phiên.
 // Hỗ trợ đăng nhập đa thiết bị (Multi-Device Login) bằng cách tự động tra cứu từ Supabase DB nếu chưa có ở thiết bị hiện tại.
@@ -153,7 +153,7 @@ export const localLogin = async ({ account, password }) => {
   ensureSeedAdmin();
   const acc = (account || "").trim();
   const users = readUsers();
-  let found = users.find((u) => u.account.toLowerCase() === acc.toLowerCase());
+  let found = users.find((u) => u && u.account && u.account.toLowerCase() === acc.toLowerCase());
   const def = findDefault(acc);
 
   // Nếu thiết bị hiện tại chưa có thông tin user, kiểm tra trên cơ sở dữ liệu Supabase DB

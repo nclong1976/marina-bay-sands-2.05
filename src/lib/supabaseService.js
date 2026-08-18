@@ -14,9 +14,15 @@ const subscribeShared = (key, createChannel) => (onMessage) => {
   let entry = sharedChannels.get(key);
   if (!entry) {
     const listeners = new Set();
-    const channel = createChannel((payload) => {
-      listeners.forEach((cb) => cb(payload));
-    });
+    let channel;
+    try {
+      channel = createChannel((payload) => {
+        listeners.forEach((cb) => cb(payload));
+      });
+    } catch (e) {
+      console.warn('Supabase realtime subscribe notice:', e?.message);
+      return () => {};
+    }
     entry = { channel, listeners };
     sharedChannels.set(key, entry);
   }

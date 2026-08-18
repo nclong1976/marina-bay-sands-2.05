@@ -413,16 +413,20 @@ export const useUserData = (userId) => {
     // 6. Supabase Realtime User Profile Listener (Instant push across devices)
     let unsubRealtime = () => {};
     if (isSupabaseConfigured() && uid && uid !== "guest_user") {
-      unsubRealtime = spSubscribeUserProfile(uid, (spProfile) => {
-        if (spProfile) {
-          if (typeof spProfile.balance === "number") {
-            updateUserData(uid, { balance: spProfile.balance });
+      try {
+        unsubRealtime = spSubscribeUserProfile(uid, (spProfile) => {
+          if (spProfile) {
+            if (typeof spProfile.balance === "number") {
+              updateUserData(uid, { balance: spProfile.balance });
+            }
+            if (spProfile.locked) {
+              window.dispatchEvent(new Event("local-users-changed"));
+            }
           }
-          if (spProfile.locked) {
-            window.dispatchEvent(new Event("local-users-changed"));
-          }
-        }
-      });
+        });
+      } catch (e) {
+        console.warn("Realtime sub catch:", e?.message);
+      }
     }
 
     // 7. Interval background sync (every 2.5 seconds)

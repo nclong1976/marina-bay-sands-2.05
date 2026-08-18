@@ -25,5 +25,19 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 4173,
     allowedHosts: true
+  },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          'three-vendor': ['three'],
+          'jspdf-vendor': ['jspdf', 'html2canvas'],
+          'recharts-vendor': ['recharts'],
+          'lucide-vendor': ['lucide-react']
+        }
+      }
+    }
   }
 });
