@@ -5,6 +5,8 @@ import {
   spFetchUserTransactions,
   spFetchUserWithdrawRequests,
   spSubscribeUserProfile,
+  spUpdateUser,
+  spFetchUserGameBets,
 } from "./supabaseService";
 import { emitSocketEvent } from "./socket";
 import { queryClientInstance } from "./query-client";
@@ -104,6 +106,13 @@ export const saveUserData = (userId, data) => {
       userChannel.postMessage({ type: "USER_DATA_UPDATED", userId: uid, data });
     }
   } catch { /* ignore */ }
+
+  // Đẩy số dư mới nhất lên Supabase — đây là nguồn dữ liệu dùng để đồng bộ số dư
+  // giữa các thiết bị (chơi game/thắng/thua trước đây chỉ lưu ở localStorage, khiến
+  // số dư "biến mất" khi đổi thiết bị hoặc bị Supabase ghi đè ngược lại giá trị cũ).
+  if (isSupabaseConfigured() && uid && uid !== "guest_user" && typeof data?.balance === "number") {
+    spUpdateUser(uid, { balance: data.balance }).catch(() => {});
+  }
 };
 
 // Test Case 4: Network Recovery Event Listener
@@ -119,6 +128,13 @@ export const updateUserData = (userId, patch) => {
   const uid = resolveUserId(userId);
   const cur = getUserData(uid);
   let next = typeof patch === "function" ? patch(cur) : { ...cur, ...patch };
+
+  // Nếu hàm cập nhật trả về CHÍNH object đầu vào (không có gì thay đổi — vd
+  // settlePendingBets() chạy trên interval nhưng chưa có vé nào tới kỳ tất toán),
+  // bỏ qua việc lưu để tránh gọi lại Socket.io + đẩy Supabase một cách dư thừa
+  // (mỗi vài giây/lần) khi người dùng có vé đang PENDING.
+  if (next === cur) return next;
+
   if (next && next.balance !== undefined) {
     const rawBal = next.balance;
     const cleanBal = parseFloat(String(rawBal).replace(/[^0-9.-]+/g, "")) || 0;
@@ -170,6 +186,54 @@ export const syncFullAccountState = async (userId) => {
       if (Object.keys(patch).length > 0) {
         updateUserData(uid, patch);
       }
+
+      // 2.5. Đồng bộ Hồ Sơ (Tên, SĐT, Trạng thái khóa, Ghi chú Admin) xuống phiên hiện tại
+      // & danh sách local_users — để tên/SĐT/khóa TK do Admin sửa trên thiết bị khác
+      // (hoặc chính user đổi trên thiết bị khác) hiển thị đúng ở đây.
+      try {
+        const rawSession = localStorage.getItem("user");
+        const session = rawSession ? JSON.parse(rawSession) : null;
+        if (session && (session.id === spProfile.id || session.account === spProfile.account)) {
+          const sessionPatch = {};
+          if (spProfile.full_name !== undefined && spProfile.full_name !== session.full_name) sessionPatch.full_name = spProfile.full_name;
+          if (spProfile.phone !== undefined && spProfile.phone !== session.phone) sessionPatch.phone = spProfile.phone;
+          if (spProfile.admin_note !== undefined && spProfile.admin_note !== session.adminNote) sessionPatch.adminNote = spProfile.admin_note;
+          if (typeof spProfile.locked === "boolean" && spProfile.locked !== session.locked) sessionPatch.locked = spProfile.locked;
+
+          if (Object.keys(sessionPatch).length > 0) {
+            const mergedSession = { ...session, ...sessionPatch };
+            localStorage.setItem("user", JSON.stringify(mergedSession));
+            window.dispatchEvent(new CustomEvent("session-profile-synced", { detail: mergedSession }));
+          }
+
+          const rawUsers = localStorage.getItem("local_users");
+          const users = rawUsers ? JSON.parse(rawUsers) : [];
+          const uIdx = users.findIndex((u) => u.id === spProfile.id || u.account === spProfile.account);
+          if (uIdx !== -1) {
+            let usersChanged = false;
+            if (spProfile.full_name !== undefined && users[uIdx].full_name !== spProfile.full_name) {
+              users[uIdx].full_name = spProfile.full_name;
+              usersChanged = true;
+            }
+            if (spProfile.phone !== undefined && users[uIdx].phone !== spProfile.phone) {
+              users[uIdx].phone = spProfile.phone;
+              usersChanged = true;
+            }
+            if (spProfile.admin_note !== undefined && users[uIdx].adminNote !== spProfile.admin_note) {
+              users[uIdx].adminNote = spProfile.admin_note;
+              usersChanged = true;
+            }
+            if (typeof spProfile.locked === "boolean" && users[uIdx].locked !== spProfile.locked) {
+              users[uIdx].locked = spProfile.locked;
+              usersChanged = true;
+            }
+            if (usersChanged) {
+              localStorage.setItem("local_users", JSON.stringify(users));
+              window.dispatchEvent(new Event("local-users-changed"));
+            }
+          }
+        }
+      } catch { /* ignore */ }
     }
 
     // 3. Đồng bộ Lịch sử Giao dịch (Transactions)
@@ -231,6 +295,60 @@ export const syncFullAccountState = async (userId) => {
 
       if (JSON.stringify(localWRs) !== JSON.stringify(mergedWRs)) {
         updateUserData(uid, { withdrawRequests: mergedWRs });
+      }
+    }
+
+    // 5. Đồng bộ Lịch sử Đặt Cược (Bets) — vé đang chờ & đã tất toán hiển thị đúng trên mọi thiết bị
+    const spBets = await spFetchUserGameBets(uid);
+    if (spBets && Array.isArray(spBets) && spBets.length > 0) {
+      const curData = getUserData(uid);
+      const localBets = curData.bets || [];
+      const betMap = new Map();
+
+      localBets.forEach((b) => betMap.set(String(b.id || b.betId), b));
+
+      spBets.forEach((row) => {
+        const rid = String(row.id);
+        const existing = betMap.get(rid);
+        const remoteStatus = row.status === "win" ? "SETTLED_WIN" : row.status === "loss" ? "SETTLED_LOSE" : "PENDING";
+
+        // Không hạ cấp vé đã tất toán cục bộ về "đang chờ" nếu CSDL chưa kịp đồng bộ xong
+        if (existing && (existing.status === "SETTLED_WIN" || existing.status === "SETTLED_LOSE") && remoteStatus === "PENDING") {
+          return;
+        }
+
+        const details = row.details || {};
+        betMap.set(rid, {
+          ...existing,
+          id: rid,
+          betId: rid,
+          userId: row.user_id,
+          gameId: row.game_type,
+          game: details.game || existing?.game || row.game_type,
+          period: details.period ?? existing?.period,
+          amount: Number(row.amount),
+          key: details.key || existing?.key,
+          itemKey: details.key || existing?.itemKey,
+          label: details.label || existing?.label,
+          lockedOdds: details.lockedOdds ?? existing?.lockedOdds,
+          odds: details.lockedOdds ?? existing?.odds,
+          tabId: details.tabId ?? existing?.tabId,
+          tabLabel: details.tabLabel || existing?.tabLabel,
+          time: details.time || existing?.time,
+          status: remoteStatus,
+          result: row.status === "win" ? "win" : row.status === "loss" ? "loss" : existing?.result,
+          winAmount: Number(row.payout) || 0,
+          created_date: details.created_date || row.created_at,
+          timestamp: details.created_date || row.created_at,
+        });
+      });
+
+      const mergedBets = Array.from(betMap.values()).sort(
+        (a, b) => new Date(a.created_date || 0) - new Date(b.created_date || 0)
+      );
+
+      if (JSON.stringify(localBets) !== JSON.stringify(mergedBets)) {
+        updateUserData(uid, { bets: mergedBets });
       }
     }
   } catch (e) {

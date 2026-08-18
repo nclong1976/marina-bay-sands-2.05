@@ -140,6 +140,27 @@ export const AuthProvider = ({ children }) => {
     };
   }, [user]);
 
+  // Nhận cập nhật hồ sơ (tên, SĐT, ghi chú...) được đồng bộ từ Supabase (đa thiết bị)
+  // qua syncFullAccountState trong userData.js, để hiển thị đúng dữ liệu mới nhất
+  // ngay trên phiên hiện tại mà không cần đăng nhập lại.
+  useEffect(() => {
+    const handleProfileSynced = (e) => {
+      if (!e.detail) return;
+      if (e.detail.locked) {
+        toast({
+          title: "Tài khoản bị khóa",
+          description: "Tài khoản của bạn đã bị tạm khóa bởi QTV. Vui lòng liên hệ CSKH.",
+          variant: "destructive",
+        });
+        logout('/login');
+        return;
+      }
+      setUser((prev) => (prev ? { ...prev, ...e.detail } : prev));
+    };
+    window.addEventListener("session-profile-synced", handleProfileSynced);
+    return () => window.removeEventListener("session-profile-synced", handleProfileSynced);
+  }, []);
+
   // Cập nhật tức thì phiên sau khi đăng nhập/đăng ký thành công:
   // set user state + localStorage('user') + tắt loading để ProtectedRoute không kẹt/đẩy về /login
   const setSession = (userData) => {

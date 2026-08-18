@@ -71,7 +71,7 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const user = localRegister({ account: u, password, payPassword: payPw, fullName: fullName.trim() });
+      const user = await localRegister({ account: u, password, payPassword: payPw, fullName: fullName.trim() });
       setSession(user);
       toast.success(t("register_success"), "Tài khoản đã được tạo");
       // Tự đăng nhập sau đăng ký: chuyển về returnTo (mặc định /) để hỗ trợ luồng OAuth consent.

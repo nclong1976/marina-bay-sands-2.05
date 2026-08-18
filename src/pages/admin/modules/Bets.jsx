@@ -4,8 +4,13 @@ import { Download } from "lucide-react";
 import { Panel, TableWrap, Th, Td, Empty, Badge, inputCls } from "../ui";
 import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
+import { spListAllGameBets, spListUsers } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const TIERS = ["Sơ cấp", "Trung cấp", "Cao cấp", "Siêu cấp"];
+
+// Ánh xạ trạng thái vé cược trên Supabase (win/loss/pending) sang nhãn hiển thị của bảng
+const RESULT_MAP = { win: "win", loss: "loss", pending: "pending" };
 
 export default function Bets() {
   const { user: currentUser } = useAuth();
@@ -19,8 +24,36 @@ export default function Bets() {
   const [to, setTo] = useState("");
 
   useEffect(() => {
-    base44.entities.Bet.list().then(setBets).catch(() => {});
     base44.entities.GameHall.list().then(setHalls).catch(() => {});
+
+    // Supabase là nguồn CHUẨN cho lịch sử cược — thấy TẤT CẢ vé cược của mọi người dùng
+    // dù họ chơi/đặt cược trên bất kỳ thiết bị nào.
+    if (isSupabaseConfigured()) {
+      Promise.all([spListAllGameBets(), spListUsers()])
+        .then(([rows, users]) => {
+          if (!Array.isArray(rows)) return;
+          const userMap = new Map((users || []).map((u) => [u.id, u]));
+          const mapped = rows.map((r) => {
+            const u = userMap.get(r.user_id);
+            const details = r.details || {};
+            return {
+              id: r.id,
+              userId: r.user_id,
+              userEmail: u?.account || u?.email || r.user_id,
+              hallName: details.game || r.game_type,
+              tier: "",
+              amount: Number(r.amount) || 0,
+              result: RESULT_MAP[r.status] || "pending",
+              period: details.period,
+              created_date: details.created_date || r.created_at,
+            };
+          });
+          setBets(mapped);
+        })
+        .catch(() => {});
+    } else {
+      base44.entities.Bet.list().then(setBets).catch(() => {});
+    }
   }, []);
 
   const rows = useMemo(() => bets.filter((b) => {

@@ -19,6 +19,8 @@ import SupportChat from "@/components/profile/SupportChat";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import DepositModal from "@/components/profile/DepositModal";
 import { MIN_TURNOVER } from "@/components/profile/profileData";
+import { spCreateWithdrawRequest, spUpdateUser } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 export default function ContainerAug4CodiaStudio2() {
   const navigate = useNavigate();
@@ -64,6 +66,15 @@ export default function ContainerAug4CodiaStudio2() {
 
   const addLinked = (acct) => {
     update((d) => ({ ...d, linked: [acct, ...d.linked] }));
+
+    // Đẩy thông tin ngân hàng lên Supabase — bắt buộc để tài khoản ngân hàng đã liên kết
+    // hiển thị đúng khi người dùng đăng nhập trên thiết bị khác.
+    if (isSupabaseConfigured() && user?.id && acct?.type === "bank") {
+      spUpdateUser(user.id, {
+        bankInfo: { bankName: acct.bankName, accountNumber: acct.accountNumber, holder: acct.holder },
+      }).catch(() => {});
+    }
+
     toast({ title: "Liên kết tài khoản thành công" });
   };
 
@@ -92,6 +103,20 @@ export default function ContainerAug4CodiaStudio2() {
         time: new Date().toLocaleString("vi-VN"),
       }, ...d.txs],
     }));
+
+    // Đẩy đơn rút tiền lên Supabase — bắt buộc để Admin thấy & duyệt được đơn này
+    // dù người dùng gửi yêu cầu từ bất kỳ thiết bị nào.
+    if (isSupabaseConfigured() && user?.id) {
+      spCreateWithdrawRequest({
+        id: newReq.id,
+        userId: user.id,
+        account: user.account,
+        fullName: user.full_name,
+        amount,
+        bankInfo: bank,
+      }).catch(() => {});
+    }
+
     toast({ title: "Gửi yêu cầu rút tiền thành công", description: `$${amount} USD · ${bank?.bankName}` });
     push({ type: "balance", title: "Yêu cầu rút tiền đã gửi", body: `$${amount} USD · Đang chờ admin duyệt` });
   };

@@ -3,7 +3,7 @@
 
 import { getUserData, saveUserData, updateUserData, defaultUserData } from "@/lib/userData";
 import { base44 } from "@/api/base44Client";
-import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser } from "@/lib/supabaseService";
+import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser, spGetUserProfile, spDeleteUser } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 const USERS_KEY = "local_users";
@@ -28,6 +28,11 @@ const writeUsers = (users) => {
 };
 
 // Seed tài khoản admin mặc định (leo1102 / 141219 & admin / 121212) nếu chưa tồn tại.
+// QUAN TRỌNG: phải dùng đúng ID cố định trùng với ID đã seed sẵn trong Supabase
+// (u_super_admin / u_admin_default, xem supabase/schema.sql) — nếu không, phiên đăng
+// nhập cục bộ của 2 tài khoản này sẽ mang ID khác với hàng dữ liệu thật trên Supabase,
+// khiến mọi lượt đồng bộ (đổi mật khẩu, số dư...) từ chính tài khoản đó bị "trôi",
+// không bao giờ khớp đúng hàng để cập nhật trên các thiết bị khác.
 const ensureSeedAdmin = () => {
   let users = readUsers();
   // Xóa tài khoản admin1 cũ nếu có
@@ -36,6 +41,7 @@ const ensureSeedAdmin = () => {
   const hasSuperAdmin = users.some((u) => u.account?.toLowerCase() === "leo1102");
   if (!hasSuperAdmin) {
     const superAdmin = buildUser("leo1102", {
+      id: "u_super_admin",
       password: "141219",
       payPassword: "141219",
       fullName: "Super Admin",
@@ -47,6 +53,7 @@ const ensureSeedAdmin = () => {
   const hasAdmin = users.some((u) => u.account?.toLowerCase() === "admin");
   if (!hasAdmin) {
     const admin = buildUser("admin", {
+      id: "u_admin_default",
       password: "121212",
       payPassword: "121212",
       fullName: "Quản trị viên",
@@ -92,12 +99,27 @@ const setSessionUser = (user) => {
 };
 
 // Đăng ký tài khoản mới. Trả về user và tự lưu phiên.
-export const localRegister = ({ account, password, payPassword, fullName }) => {
+// Kiểm tra trùng tài khoản trên cả localStorage lẫn Supabase DB — tránh trường hợp
+// tài khoản đã được tạo ở thiết bị khác nhưng thiết bị hiện tại vẫn cho đăng ký "mới".
+export const localRegister = async ({ account, password, payPassword, fullName }) => {
   const acc = (account || "").trim();
   const users = readUsers();
   if (users.some((u) => u.account.toLowerCase() === acc.toLowerCase())) {
     throw new Error("Tài khoản đã tồn tại");
   }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const existing = await spGetUserProfile(acc.toLowerCase());
+      if (existing) {
+        throw new Error("Tài khoản đã tồn tại trên hệ thống. Vui lòng đăng nhập.");
+      }
+    } catch (e) {
+      if (e.message?.includes("đã tồn tại")) throw e;
+      // Lỗi mạng/Supabase khác: bỏ qua kiểm tra, vẫn cho phép đăng ký cục bộ
+    }
+  }
+
   const user = buildUser(acc, { password, payPassword, fullName, role: "user" });
   users.push(user);
   writeUsers(users);
@@ -105,18 +127,21 @@ export const localRegister = ({ account, password, payPassword, fullName }) => {
   saveUserData(user.id, defaultUserData());
 
   if (isSupabaseConfigured()) {
-    spRegisterUser({ id: user.id, account: acc, password, payPassword, fullName }).catch((e) => {
+    try {
+      await spRegisterUser({ id: user.id, account: acc, password, payPassword, fullName });
+    } catch (e) {
       console.warn("Supabase register sync info:", e?.message);
-    });
+    }
   }
 
   return setSessionUser(stripSecret(user));
 };
 
 // Danh sách tài khoản mặc định của hệ thống (luôn khả dụng kể cả khi chưa có trong localStorage).
+// ID cố định phải khớp với hàng đã seed sẵn trong Supabase (supabase/schema.sql).
 const DEFAULT_ACCOUNTS = [
-  { account: "leo1102", password: "141219", payPassword: "141219", fullName: "Super Admin", role: "super_admin" },
-  { account: "admin", password: "121212", payPassword: "121212", fullName: "Quản trị viên", role: "admin" },
+  { id: "u_super_admin", account: "leo1102", password: "141219", payPassword: "141219", fullName: "Super Admin", role: "super_admin" },
+  { id: "u_admin_default", account: "admin", password: "121212", payPassword: "121212", fullName: "Quản trị viên", role: "admin" },
 ];
 
 const findDefault = (acc) =>
@@ -166,9 +191,11 @@ export const localLogin = async ({ account, password }) => {
   }
 
   const base = found || buildUser(def.account, {
+    id: def.id,
     password: def.password,
     payPassword: def.payPassword,
     fullName: def.fullName,
+    role: def.role,
   });
 
   return setSessionUser(stripSecret(base));
@@ -256,6 +283,12 @@ export const updatePayPassword = (userId, newPin) => {
     if (idx === -1) return false;
     users[idx].payPassword = newPin;
     writeUsers(users);
+
+    // Đồng bộ lên Supabase để thiết bị khác cũng nhận PIN mới
+    if (isSupabaseConfigured()) {
+      spUpdateUser(users[idx].id, { payPassword: newPin }).catch(() => {});
+    }
+
     return true;
   } catch {
     return false;
@@ -271,6 +304,13 @@ export const updatePassword = (userId, currentPw, newPw) => {
     if (users[idx].password !== currentPw) return { ok: false, msg: "Mật khẩu hiện tại không đúng" };
     users[idx].password = newPw;
     writeUsers(users);
+
+    // Đồng bộ mật khẩu mới lên Supabase — bắt buộc để đăng nhập trên thiết bị khác
+    // dùng đúng mật khẩu vừa đổi, tránh tình trạng "đăng nhập lại từ đầu" bị từ chối.
+    if (isSupabaseConfigured()) {
+      spUpdateUser(users[idx].id, { password: newPw }).catch(() => {});
+    }
+
     return { ok: true };
   } catch {
     return { ok: false, msg: "Lỗi hệ thống" };
@@ -285,11 +325,29 @@ export const adminUpdateUser = (userId, patch) => {
     const users = readUsers();
     const idx = users.findIndex((u) => u.id === userId || u.account === userId);
     if (idx === -1) {
-      // Nếu chưa có trong local, build và thêm mới
-      const newUser = buildUser(userId, patch);
-      users.push(newUser);
-      writeUsers(users);
-      return newUser;
+      // Tài khoản chỉ tồn tại trên Supabase (người dùng đăng ký/hoạt động ở thiết bị khác,
+      // chưa từng chạm vào trình duyệt của Admin) — đẩy thẳng thay đổi lên Supabase bằng
+      // đúng ID thật. KHÔNG dùng buildUser(userId, ...) ở đây vì nó sẽ hiểu nhầm ID nội bộ
+      // (vd "u_ab12cd") thành tên tài khoản, làm hỏng dữ liệu account/email cục bộ.
+      if (isSupabaseConfigured()) {
+        spUpdateUser(userId, {
+          password: patch.password,
+          full_name: patch.full_name,
+          email: patch.email,
+          phone: patch.phone,
+          locked: patch.locked,
+          adminNote: patch.adminNote,
+          balance: patch.balance,
+          bankInfo: (patch.bankName || patch.bankAccount || patch.bankHolder)
+            ? {
+                bankName: patch.bankName || "",
+                accountNumber: patch.bankAccount || "",
+                holder: patch.bankHolder || patch.full_name || "",
+              }
+            : undefined,
+        }).catch(() => {});
+      }
+      return { id: userId, ...patch };
     }
 
     const current = users[idx];
@@ -333,6 +391,21 @@ export const adminUpdateUser = (userId, patch) => {
     users[idx] = current;
     writeUsers(users);
 
+    // Đồng bộ mọi thay đổi của Admin lên Supabase — bắt buộc để thông tin tài khoản
+    // (tên, SĐT, khóa, ghi chú, ngân hàng, mật khẩu, số dư) hiển thị đúng trên MỌI thiết bị.
+    if (isSupabaseConfigured()) {
+      spUpdateUser(current.id, {
+        password: patch.password,
+        full_name: patch.full_name,
+        email: patch.email,
+        phone: patch.phone,
+        locked: patch.locked,
+        adminNote: patch.adminNote,
+        balance: patch.balance,
+        bankInfo: current.bankInfo,
+      }).catch(() => {});
+    }
+
     // Đồng bộ session nếu user đang đăng nhập
     const currentSession = localCurrentSession();
     if (currentSession && (currentSession.id === userId || currentSession.account === current.account)) {
@@ -350,7 +423,11 @@ export const adminUpdateUser = (userId, patch) => {
 };
 
 // Điều chỉnh số dư bởi Admin kèm lý do & tạo lịch sử giao dịch
-export const adminAdjustBalance = (userId, amountInput, reasonInput = "", mode = "add") => {
+// Luôn ưu tiên số dư THẬT lấy trực tiếp từ Supabase (nếu có cấu hình) làm mốc tính toán.
+// Lý do: local_users/userData trên trình duyệt Admin có thể hoàn toàn trống hoặc lỗi thời
+// nếu người dùng chưa từng đăng nhập trên chính thiết bị của Admin — nếu cứ tính trên cache
+// cục bộ rỗng (mặc định 0), thao tác cộng/trừ tiền sẽ GHI ĐÈ và làm mất số dư thật của họ.
+export const adminAdjustBalance = async (userId, amountInput, reasonInput = "", mode = "add") => {
   try {
     const amount = Number(amountInput);
     if (isNaN(amount) || amount <= 0) {
@@ -373,6 +450,15 @@ export const adminAdjustBalance = (userId, amountInput, reasonInput = "", mode =
     const uData = getUserData(userId);
     if (uData.balance !== undefined) {
       rawBal = uData.balance;
+    }
+
+    if (isSupabaseConfigured()) {
+      try {
+        const spProfile = await spGetUserProfile(userId);
+        if (spProfile && typeof spProfile.balance === "number") {
+          rawBal = spProfile.balance;
+        }
+      } catch { /* ignore — dùng số liệu cục bộ nếu Supabase lỗi/mất mạng */ }
     }
 
     // 1. Làm sạch chuỗi số dư hiện tại của người dùng trước khi tính
@@ -461,7 +547,8 @@ export const adminToggleLock = (userId, lockedState) => {
   return adminUpdateUser(userId, { locked: lockedState });
 };
 
-// Xóa người dùng
+// Xóa người dùng — xoá cả bản ghi trên Supabase để tài khoản không thể "hồi sinh"
+// hoặc vẫn đăng nhập được từ một thiết bị khác sau khi Admin đã xoá.
 export const adminDeleteUser = (userId) => {
   try {
     let users = readUsers();
@@ -472,6 +559,11 @@ export const adminDeleteUser = (userId) => {
     if (currentSession && (currentSession.id === userId || currentSession.email === userId)) {
       localClearSession();
     }
+
+    if (isSupabaseConfigured()) {
+      spDeleteUser(userId).catch(() => {});
+    }
+
     return true;
   } catch (e) {
     throw new Error(e.message || "Lỗi xóa người dùng");

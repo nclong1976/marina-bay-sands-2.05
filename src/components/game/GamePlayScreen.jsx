@@ -13,6 +13,8 @@ import { getGameById } from "@/components/home/homeData";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserData, getUserData, updateUserData as setGlobalUserData, resolveUserId } from "@/lib/userData";
 import { getCurrentRoundInfo, getPeriodDraw, settlePendingBets } from "@/lib/gameRoundManager";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { spSyncGameBet } from "@/lib/supabaseService";
 
 export default function GamePlayScreen({ gameId, tier, variantId }) {
   const config = useMemo(() => getGameConfig(gameId), [gameId]);
@@ -407,6 +409,11 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
       try {
         window.dispatchEvent(new CustomEvent("FORCE_BALANCE_SYNC", { detail: { userId: uid } }));
       } catch { /* ignore */ }
+
+      // Đẩy vé cược mới lên Supabase để thiết bị khác cùng tài khoản thấy đúng vé đang chờ
+      if (isSupabaseConfigured()) {
+        newBets.forEach((b) => { spSyncGameBet(b).catch(() => {}); });
+      }
 
       setTickets([]);
       setSelectedCells([]);

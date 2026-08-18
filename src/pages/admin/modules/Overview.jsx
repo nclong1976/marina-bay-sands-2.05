@@ -5,6 +5,8 @@ import { Users as UsersIcon, UserCheck, ArrowLeftRight, DollarSign, Ticket } fro
 import { Panel, StatCard, TableWrap, Th, Td, Empty, Badge } from "../ui";
 import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
+import { spListUsers, spListAllGameBets } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const PIE = ["#7033ff", "#4b00ff", "#ffab40", "#e67e22", "#34d399", "#38bdf8", "#f472b6", "#a78bfa", "#fb7185"];
 
@@ -16,9 +18,40 @@ export default function Overview() {
   const [bets, setBets] = useState([]);
 
   useEffect(() => {
-    base44.entities.User.list().then(setUsers).catch(() => {});
     base44.entities.Transaction.list().then(setTxs).catch(() => {});
-    base44.entities.Bet.list().then(setBets).catch(() => {});
+
+    // Supabase là nguồn CHUẨN — thấy TẤT CẢ người dùng & vé cược dù hoạt động ở thiết bị nào.
+    if (isSupabaseConfigured()) {
+      spListUsers().then((rows) => {
+        if (Array.isArray(rows)) {
+          setUsers(rows.map((r) => ({
+            id: r.id,
+            account: r.account,
+            email: r.email,
+            locked: !!r.locked,
+          })));
+        }
+      }).catch(() => {});
+
+      spListAllGameBets().then((rows) => {
+        if (!Array.isArray(rows)) return;
+        setBets(rows.map((r) => {
+          const details = r.details || {};
+          return {
+            id: r.id,
+            userId: r.user_id,
+            userEmail: r.user_id,
+            hallName: details.game || r.game_type,
+            amount: Number(r.amount) || 0,
+            result: r.status,
+            created_date: details.created_date || r.created_at,
+          };
+        }));
+      }).catch(() => {});
+    } else {
+      base44.entities.User.list().then(setUsers).catch(() => {});
+      base44.entities.Bet.list().then(setBets).catch(() => {});
+    }
   }, []);
 
   const visibleUsers = useMemo(() => {

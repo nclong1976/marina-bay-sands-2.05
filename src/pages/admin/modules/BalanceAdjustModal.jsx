@@ -5,6 +5,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { adminAdjustBalance } from "@/lib/localAuth";
 import { getUserData } from "@/lib/userData";
 import { pushNotification } from "@/lib/localNotifications";
+import { spGetUserProfile } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { Wallet, PlusCircle, MinusCircle, FileText } from "lucide-react";
 
 const inputCls = "w-full bg-[#0d102b] border border-white/15 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-[#7033ff] transition-all";
@@ -26,10 +28,20 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
       setAmount("");
       setReason("");
       setMode("add");
+
+      // Lấy số dư THẬT từ Supabase — cache cục bộ trên trình duyệt Admin có thể trống/lỗi
+      // thời nếu người dùng này chưa từng đăng nhập trên chính thiết bị của Admin.
+      if (isSupabaseConfigured()) {
+        spGetUserProfile(user.id).then((spProfile) => {
+          if (spProfile && typeof spProfile.balance === "number") {
+            setCurrentBalance(spProfile.balance);
+          }
+        }).catch(() => {});
+      }
     }
   }, [user]);
 
-  const handleAdjust = () => {
+  const handleAdjust = async () => {
     if (!user) return;
 
     // 1. Sanitization & Validation: Làm sạch số tiền nhập bằng parseFloat
@@ -46,19 +58,13 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
     // 2. Làm sạch lý do: Nếu để trống, tự động gán mặc định "Admin điều chỉnh số dư"
     const cleanReason = reason.trim() || "Admin điều chỉnh số dư";
 
-    // 3. Làm sạch số dư hiện tại bằng parseFloat
-    const uData = getUserData(user.id);
-    const rawCur = uData.balance !== undefined ? uData.balance : (user.balance || 0);
-    const cleanCurBal = parseFloat(String(rawCur).replace(/[^0-9.-]+/g, "")) || 0;
-
-    // 4. Tính toán số dư mới với Math.max(0, ...) để ngăn số dư âm
-    const rawTarget = mode === "add" ? cleanCurBal + numAmount : Math.max(0, cleanCurBal - numAmount);
-    const finalBalance = Math.max(0, parseFloat(rawTarget.toFixed(2)));
-
     setSaving(true);
     try {
-      // Cập nhật CSDL local & lưu Transaction Audit Log
-      const res = adminAdjustBalance(user.id, numAmount, cleanReason, mode);
+      // Cập nhật số dư — adminAdjustBalance tự lấy số dư THẬT từ Supabase làm mốc tính toán
+      // (không dựa vào cache cục bộ có thể trống/lỗi thời trên trình duyệt Admin) và trả về
+      // res.newBalance chính xác để dùng tiếp bên dưới.
+      const res = await adminAdjustBalance(user.id, numAmount, cleanReason, mode);
+      const finalBalance = res.newBalance;
 
       // Gọi updateUserData để kích hoạt event đồng bộ tức thì trên toàn ứng dụng
       if (propUpdateUserData) {
@@ -79,7 +85,7 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
       const targetName = user.account || user.full_name || user.email || "người dùng";
       toast({
         title: "Đã cập nhật số dư thành công!",
-        description: `Đã ${actionText} $${numAmount.toLocaleString()} USD cho ${targetName}. Số dư mới: $${(res?.newBalance ?? finalBalance).toLocaleString()} USD`,
+        description: `Đã ${actionText} $${numAmount.toLocaleString()} USD cho ${targetName}. Số dư mới: $${finalBalance.toLocaleString()} USD`,
       });
 
       // Reset form & đóng modal

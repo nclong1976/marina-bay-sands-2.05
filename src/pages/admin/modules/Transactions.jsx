@@ -8,6 +8,8 @@ import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
 import { getUserData, updateUserData } from "@/lib/userData";
 import { pushNotification } from "@/lib/localNotifications";
+import { spListAllWithdrawRequests, spUpdateWithdrawRequestStatus, spGetUserProfile } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const STATUS = ["pending", "processing", "completed", "rejected"];
 
@@ -20,7 +22,8 @@ export default function Transactions() {
   const [fType, setFType] = useState("all");
   const [confirm, setConfirm] = useState(null);
 
-  // Load cả Base44 API lẫn localStorage per-user withdrawRequests
+  // Load đơn rút tiền — Supabase là nguồn CHUẨN (thấy TẤT CẢ đơn dù người dùng gửi từ
+  // thiết bị nào); chỉ rơi về cache local per-user khi Supabase chưa cấu hình/lỗi.
   const load = async () => {
     let apiList = [];
     try {
@@ -29,30 +32,56 @@ export default function Transactions() {
       apiList = [];
     }
 
-    // Đọc tất cả đơn rút từ localStorage người dùng
-    const localRequests = [];
-    const users = localListUsers();
-    users.forEach((u) => {
-      const uData = getUserData(u.id);
-      if (uData.withdrawRequests) {
-        uData.withdrawRequests.forEach((req) => {
-          localRequests.push({
-            id: req.id,
-            userEmail: u.account || u.email,
-            userId: u.id,
+    let requestList = [];
+    let gotFromSupabase = false;
+
+    if (isSupabaseConfigured()) {
+      try {
+        const spRows = await spListAllWithdrawRequests();
+        if (Array.isArray(spRows)) {
+          gotFromSupabase = true;
+          requestList = spRows.map((r) => ({
+            id: r.id,
+            userEmail: r.account || r.user_id,
+            userId: r.user_id,
             type: "withdraw",
-            amount: req.amount,
-            method: req.bank ? `${req.bank.bankName} (${req.bank.accountNumber})` : "Ngân hàng",
-            status: req.status === "approved" ? "completed" : req.status,
-            created_date: req.createdAt || new Date().toISOString(),
-            rawReq: req,
-          });
-        });
+            amount: Number(r.amount),
+            method: r.bank_info?.bankName ? `${r.bank_info.bankName} (${r.bank_info.accountNumber || ""})` : "Ngân hàng",
+            status: r.status === "approved" ? "completed" : r.status,
+            created_date: r.created_at,
+            rawReq: r,
+          }));
+        }
+      } catch {
+        /* ignore — rơi về local nếu Supabase lỗi */
       }
-    });
+    }
+
+    if (!gotFromSupabase) {
+      // Đọc tất cả đơn rút từ localStorage người dùng (chỉ những user từng chạm thiết bị này)
+      const users = localListUsers();
+      users.forEach((u) => {
+        const uData = getUserData(u.id);
+        if (uData.withdrawRequests) {
+          uData.withdrawRequests.forEach((req) => {
+            requestList.push({
+              id: req.id,
+              userEmail: u.account || u.email,
+              userId: u.id,
+              type: "withdraw",
+              amount: req.amount,
+              method: req.bank ? `${req.bank.bankName} (${req.bank.accountNumber})` : "Ngân hàng",
+              status: req.status === "approved" ? "completed" : req.status,
+              created_date: req.createdAt || new Date().toISOString(),
+              rawReq: req,
+            });
+          });
+        }
+      });
+    }
 
     // Trộn và gộp danh sách
-    const merged = [...localRequests, ...apiList];
+    const merged = [...requestList, ...apiList];
     setTxs(merged);
   };
 
@@ -75,8 +104,25 @@ export default function Transactions() {
         await base44.entities.Transaction.update(tx.id, { status });
       }
 
-      // 2. Cập nhật nếu là local user withdraw request
+      // 2. Cập nhật đơn rút tiền
       if (tx.userId) {
+        // Supabase là nguồn chuẩn — cập nhật trạng thái đơn ngay để đúng trên mọi thiết bị
+        let authoritativeBalance = null;
+        if (isSupabaseConfigured()) {
+          await spUpdateWithdrawRequestStatus(tx.id, status === "completed" ? "approved" : "rejected");
+
+          // Lấy số dư THẬT từ Supabase làm mốc hoàn tiền, tránh cộng hoàn nhầm trên cache
+          // cục bộ trống/lỗi thời nếu user chưa từng đăng nhập trên thiết bị Admin.
+          if (status === "rejected") {
+            try {
+              const spProfile = await spGetUserProfile(tx.userId);
+              if (spProfile && typeof spProfile.balance === "number") {
+                authoritativeBalance = spProfile.balance;
+              }
+            } catch { /* ignore */ }
+          }
+        }
+
         updateUserData(tx.userId, (d) => {
           const updatedReqs = (d.withdrawRequests || []).map((r) => {
             if (r.id === tx.id) {
@@ -87,16 +133,17 @@ export default function Transactions() {
 
           // Khi người dùng gửi đơn rút, tiền đã bị trừ tạm thời.
           // Nếu Admin duyệt -> giữ nguyên bị trừ. Nếu Admin từ chối -> hoàn lại tiền vào ví người dùng (+tx.amount)!
-          let nextBalance = d.balance;
+          const baseBalance = authoritativeBalance !== null ? authoritativeBalance : d.balance;
+          let nextBalance = baseBalance;
           if (status === "rejected") {
-            nextBalance = +(d.balance + tx.amount).toFixed(2);
+            nextBalance = +(baseBalance + tx.amount).toFixed(2);
           }
 
           return {
             ...d,
             balance: nextBalance,
             withdrawRequests: updatedReqs,
-            txs: d.txs.map((t) => (t.txid === tx.id ? { ...t, status: status === "completed" ? "completed" : "rejected" } : t)),
+            txs: (d.txs || []).map((t) => (t.txid === tx.id ? { ...t, status: status === "completed" ? "completed" : "rejected" } : t)),
           };
         });
 

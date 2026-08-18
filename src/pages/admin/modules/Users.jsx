@@ -24,6 +24,8 @@ import { localListUsers, adminToggleLock, adminDeleteUser } from "@/lib/localAut
 import { isSecretChatUser } from "@/lib/localChat";
 import { getUserData, updateUserData } from "@/lib/userData";
 import { useAuth } from "@/lib/AuthContext";
+import { spListUsers } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 import EditUserModal from "./EditUserModal";
 import BalanceAdjustModal from "./BalanceAdjustModal";
@@ -70,7 +72,20 @@ export default function Users() {
   // Realtime engine status
   const [lastSync, setLastSync] = useState(new Date());
 
-  // Load and merge users from local storage and Base44 DB
+  // Load & merge danh sách người dùng — Supabase là nguồn dữ liệu CHUẨN (chứa TẤT CẢ tài
+  // khoản đã đăng ký/hoạt động trên BẤT KỲ thiết bị nào), local storage & Base44 chỉ bổ
+  // sung cho những trường hợp chưa kịp đồng bộ lên Supabase (offline, chưa cấu hình...).
+  const isHiddenFromViewer = useCallback((u) => {
+    return (
+      currentUser?.role !== "super_admin" &&
+      (u.role === "super_admin" ||
+        (u.account || "").toLowerCase() === "leo1102" ||
+        isSecretChatUser(u.id) ||
+        isSecretChatUser(u.account) ||
+        isSecretChatUser(u.email))
+    );
+  }, [currentUser?.role]);
+
   const loadUsers = useCallback(async () => {
     let bUsers = [];
     try {
@@ -79,22 +94,44 @@ export default function Users() {
       /* ignore fallback */
     }
 
+    let spUsers = [];
+    if (isSupabaseConfigured()) {
+      try {
+        const rows = await spListUsers();
+        if (Array.isArray(rows)) spUsers = rows;
+      } catch {
+        /* ignore — rơi về local/base44 nếu Supabase lỗi */
+      }
+    }
+
     const lUsers = localListUsers(currentUser?.role);
     const mapByAccOrId = new Map();
 
-    // Prioritize local storage overrides
-    lUsers.forEach((u) => {
-      if (
-        currentUser?.role !== "super_admin" &&
-        (u.role === "super_admin" ||
-          u.account?.toLowerCase() === "leo1102" ||
-          isSecretChatUser(u.id) ||
-          isSecretChatUser(u.account) ||
-          isSecretChatUser(u.email))
-      ) {
-        return;
-      }
+    // 1. Supabase (nguồn chuẩn — đa thiết bị)
+    spUsers.forEach((row) => {
+      const u = {
+        id: row.id,
+        account: row.account,
+        email: row.email,
+        full_name: row.full_name,
+        phone: row.phone,
+        role: row.role || "user",
+        balance: typeof row.balance === "number" ? row.balance : 0,
+        locked: !!row.locked,
+        adminNote: row.admin_note || "",
+        bankInfo: row.bank_info && row.bank_info.bankName ? row.bank_info : null,
+        created_date: row.created_at,
+      };
+      if (isHiddenFromViewer(u)) return;
       const key = (u.account || u.id || u.email || "").toLowerCase();
+      mapByAccOrId.set(key, u);
+    });
+
+    // 2. Local cache — chỉ bổ sung tài khoản CHƯA có trên Supabase, không ghi đè dữ liệu chuẩn
+    lUsers.forEach((u) => {
+      if (isHiddenFromViewer(u)) return;
+      const key = (u.account || u.id || u.email || "").toLowerCase();
+      if (mapByAccOrId.has(key)) return;
       const uData = getUserData(u.id);
       const curBal = uData.balance !== undefined ? uData.balance : (u.balance || 0);
       const bankLinked = uData.linked?.find((l) => l.type === "bank") || u.bankInfo || null;
@@ -106,17 +143,9 @@ export default function Users() {
       });
     });
 
+    // 3. Base44 (legacy) — chỉ bổ sung nếu còn thiếu
     bUsers.forEach((u) => {
-      if (
-        currentUser?.role !== "super_admin" &&
-        (u.role === "super_admin" ||
-          u.account?.toLowerCase() === "leo1102" ||
-          isSecretChatUser(u.id) ||
-          isSecretChatUser(u.account) ||
-          isSecretChatUser(u.email))
-      ) {
-        return;
-      }
+      if (isHiddenFromViewer(u)) return;
       const key = (u.account || u.id || u.email || "").toLowerCase();
       if (!mapByAccOrId.has(key)) {
         const uData = getUserData(u.id);
@@ -133,7 +162,7 @@ export default function Users() {
 
     setUsers(Array.from(mapByAccOrId.values()));
     setLastSync(new Date());
-  }, [currentUser?.role]);
+  }, [currentUser?.role, isHiddenFromViewer]);
 
   useEffect(() => {
     loadUsers();

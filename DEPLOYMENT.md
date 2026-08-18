@@ -1,195 +1,89 @@
 # 🚀 Deployment Guide - Sands Club
 
-## Prerequisites
+## Architecture (what's actually deployed)
 
-1. Base44 account with active project
-2. Stripe account (production keys)
-3. Sentry account (error tracking)
-4. Google Analytics setup
-5. Domain configured for HTTPS
+This app is **not** deployed through Base44 — that SDK is a legacy leftover and is
+inert with no `VITE_BASE44_APP_ID` set. The real stack is:
 
-## Local Setup
+- **Frontend**: React + Vite, built to static files (`npm run build` → `dist/`)
+- **Server**: A single long-running Node process (`server/index.js`) — Express
+  serves the built frontend and exposes `/api/health`; Socket.io runs on the
+  same HTTP server for realtime features (chat, admin notifications, live odds)
+- **Database**: Supabase (already hosted externally — nothing to deploy for it)
 
-```bash
-# 1. Clone repository
-git clone <repo-url>
-cd app2.1marinabaysands
+Because Socket.io needs a persistent connection, this **cannot** be hosted on a
+static-site host (Vercel static, Netlify, GitHub Pages) or on serverless
+functions. It needs a platform that runs a long-lived Node process — Railway,
+Render, Fly.io, or a VPS.
 
-# 2. Install dependencies
-npm install
+This guide covers **Railway**, since that's what a persistent Node+Socket.io
+service is simplest on.
 
-# 3. Install Base44 CLI
-npm install -g base44@latest
+## 1. Required environment variables
 
-# 4. Create .env.local
-cp .env.example .env.local
+Only two variables are actually required (see `.env.example`):
 
-# 5. Configure environment variables
-# Edit .env.local with production values
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_xxxxxxxxxxxx
 ```
 
-## Environment Configuration
+Get these from your Supabase project dashboard → Project Settings → API.
 
-### Production Variables (.env.local)
+**Important**: these are Vite env vars, which get baked into the JS bundle at
+**build time**. On Railway, set them as project Variables before the first
+deploy (or trigger a new deploy after adding/changing them) — setting them
+after a build won't retroactively apply.
 
-```env
-# Base44 Configuration - FROM YOUR BASE44 DASHBOARD
-VITE_BASE44_APP_ID=your_production_app_id
-VITE_BASE44_APP_BASE_URL=https://your-app.base44.app
+## 2. Deploy to Railway
 
-# API Configuration
-VITE_API_URL=https://your-app.base44.app/api
-VITE_APP_NAME=Sands Club
-VITE_APP_VERSION=1.0.0
+1. Push this repo to GitHub if it isn't already (`git remote -v` to check).
+2. Go to [railway.app](https://railway.app), sign in, **New Project → Deploy from GitHub repo**, and select this repository.
+3. Railway auto-detects Node.js via Nixpacks. This repo includes `railway.json`, which sets:
+   - Build command: `npm run build`
+   - Start command: `npm start` (runs `server/index.js` with `NODE_ENV=production`)
+   - Health check: `/api/health`
+4. In the Railway project → **Variables** tab, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+5. Trigger a deploy (Railway does this automatically after you add variables / push to the branch). Watch the build logs; wait for the health check to go green.
+6. Open the `*.up.railway.app` URL Railway gives you and confirm the app loads, and that you can register/log in — this proves Supabase connectivity is correct before you touch DNS.
 
-# Authentication
-VITE_AUTH_ENABLED=true
-VITE_SESSION_TIMEOUT=3600000
+Railway sets `PORT` automatically; `server/index.js` already reads `process.env.PORT`, so no change needed there.
 
-# Payment Integration - PRODUCTION STRIPE KEYS
-VITE_STRIPE_PUBLIC_KEY=pk_live_your_actual_stripe_public_key
+## 3. Point your domain at it
 
-# Error Tracking - SENTRY
-VITE_SENTRY_DSN=https://your-sentry-key@sentry.io/your-project-id
+1. In the Railway project → **Settings → Networking → Custom Domain**, click **Add Domain**, and enter your domain (e.g. `sandsclub.com` or a subdomain like `app.sandsclub.com`).
+2. Railway shows you a DNS target — usually a **CNAME** value (something like `xxxxx.up.railway.app`). For an apex/root domain (`sandsclub.com` with no subdomain), Railway will tell you whether it needs a CNAME or an `A`/`ALIAS`/`ANAME` record instead, since plain CNAME isn't valid on a root domain in classic DNS — if your registrar doesn't support ALIAS/ANAME/CNAME-flattening on the apex, use a subdomain like `www` or `app` and redirect the root to it.
+3. Go to your domain registrar's DNS management panel (wherever the domain is registered) and add the record Railway showed you:
+   - Subdomain (e.g. `app.sandsclub.com`): add a **CNAME** record, host `app`, value = the Railway target.
+   - Root domain (`sandsclub.com`): add whatever record type your registrar offers for apex domains pointing at a CNAME target (ALIAS/ANAME, or Cloudflare's proxied CNAME flattening).
+4. Wait for DNS propagation (usually minutes, can take up to 24-48h depending on registrar/TTL). Railway auto-provisions a free SSL certificate (Let's Encrypt) once it detects the DNS record is live — no manual certificate work needed.
+5. Once the custom domain shows "Active" in Railway, visit it and confirm the app loads over HTTPS.
 
-# Analytics
-VITE_ANALYTICS_ENABLED=true
-VITE_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX
+## 4. Post-deploy checklist
 
-# Feature Flags
-VITE_ENABLE_DEMO_MODE=false
-VITE_ENABLE_ADMIN_PANEL=true
-VITE_ENABLE_NOTIFICATIONS=true
-VITE_LOG_LEVEL=warn
-```
+- [ ] `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` set correctly in Railway Variables
+- [ ] Register a test account and confirm it appears in Supabase's `users_profile` table
+- [ ] Log in as `admin` / `leo1102` (seeded accounts — **change these passwords or lock these accounts down before going fully live**, see Security below) and confirm the admin panel loads
+- [ ] Custom domain shows "Active" in Railway with a valid HTTPS padlock
+- [ ] Socket.io connects (open browser dev tools → Network → WS, confirm a websocket connection to your domain, not `localhost`)
+- [ ] `/api/health` responds at `https://yourdomain.com/api/health`
 
-## Build & Test
+## 5. Security notes before going live
 
-```bash
-# 1. Run linting
-npm run lint
-npm run lint:fix  # Auto-fix issues
+- The two seeded admin accounts (`leo1102` / `141219` and `admin` / `121212`, see `supabase/schema.sql`) use **hardcoded default passwords**. Change both passwords immediately after your first deploy (log in → Settings → change password), since anyone who reads this repo's schema file knows the defaults.
+- Supabase RLS policies in `schema.sql` are currently **fully permissive** (`USING (true) WITH CHECK (true)` on every table) — any holder of the anon key can read/write any row directly via the Supabase REST API, bypassing the app entirely. This is fine for getting started, but before handling real money you should tighten RLS policies (e.g., restrict `users_profile` writes to the row's own `id`/`account`, restrict `game_bets`/`transactions` writes similarly) or move privileged writes (balance adjustments, user locks) behind a server-side endpoint using the Supabase **service role** key, which never ships to the browser.
+- `SUPABASE_SECRET_KEY` in `.env` is the service-role key — never expose it to the frontend (it isn't currently used by any `VITE_`-prefixed variable, which is correct; keep it that way).
 
-# 2. Type checking
-npm run typecheck
+## Rollback
 
-# 3. Build for production
-npm run build
-
-# 4. Preview production build
-npm run preview
-
-# Visit: http://localhost:4173
-```
-
-## Deployment to Base44
-
-### Using Base44 CLI
-
-```bash
-# 1. Open Base44 dashboard
-base44 dashboard open
-
-# 2. Configure deployment in dashboard
-# - Link GitHub repository
-# - Set build command: npm run build
-# - Set output directory: ./dist
-# - Set environment variables
-
-# 3. Deploy
-# Push changes to main branch, Base44 auto-deploys
-# OR manually trigger from dashboard
-```
-
-### GitHub Integration
-
-1. Go to Base44 Dashboard
-2. Settings → Integrations → GitHub
-3. Connect repository
-4. Configure auto-deploy on push to `main`
-5. Set branch protection rules on `main`
-
-## Post-Deployment Checks
-
-### Functional Testing
-- [ ] Login/Register works
-- [ ] User profile loads correctly
-- [ ] Game listings display
-- [ ] Betting functionality works
-- [ ] Payments process correctly
-- [ ] Notifications send
-- [ ] Error handling displays gracefully
-
-### Performance
-- [ ] Page load time < 3s
-- [ ] API response time < 500ms
-- [ ] No console errors
-- [ ] Images optimized
-- [ ] CSS/JS bundled correctly
-
-### Security
-- [ ] HTTPS enforced
-- [ ] No secrets in code/env
-- [ ] CORS headers correct
-- [ ] Authentication tokens secure
-- [ ] Payment data not logged
-
-### Monitoring
-- [ ] Sentry capturing errors
-- [ ] Analytics tracking events
-- [ ] Base44 dashboard shows activity
-- [ ] Database connections healthy
-- [ ] API quotas monitored
-
-## Rollback Procedure
-
-```bash
-# If deployment fails, rollback to previous version
-base44 dashboard open
-
-# Select previous deployment version and promote to live
-```
-
-## Scaling & Performance
-
-### Base44 Auto-Scaling
-- Enable auto-scaling in Base44 dashboard
-- Set min/max instances based on traffic
-- Monitor API quotas
-
-### CDN Configuration
-- Base44 includes CDN by default
-- Static assets cached at edge
-- Configure cache headers in build
-
-### Database Optimization
-- Monitor query performance
-- Create indexes on frequently queried fields
-- Implement connection pooling
+Railway keeps deployment history — open the project → **Deployments** tab, and click **Redeploy** on any previous successful build to roll back instantly.
 
 ## Troubleshooting
 
-### Build Fails
-```bash
-# Clear cache and rebuild
-rm -rf dist node_modules
-npm install
-npm run build
-```
+**Build fails**: check the Railway build logs. Common cause: a `VITE_SUPABASE_*` variable typo or missing value — the app will still build without them, but Supabase calls will silently no-op (`isSupabaseConfigured()` returns false), so most features will look "broken" (no admin data, no cross-device sync) without ever erroring.
 
-### Deployment Stuck
-- Check Base44 dashboard logs
-- Verify environment variables set correctly
-- Check GitHub integration status
+**Site loads but shows a blank page / 502**: check `npm start` logs in Railway. If you see route-registration errors, verify `server/index.js`'s catch-all is the path-less `app.use((req, res) => ...)` form (Express 5 dropped support for bare `app.get('*', ...)`).
 
-### Runtime Errors
-- Check Sentry for error tracking
-- Review Base44 application logs
-- Check browser console for client-side errors
+**Custom domain stuck on "Pending"**: DNS hasn't propagated yet, or the record type is wrong for an apex domain. Use `dig yourdomain.com` or https://dnschecker.org to verify the record is visible publicly.
 
-## Support
-
-- Base44 Docs: https://docs.base44.com
-- CLI Reference: https://docs.base44.com/developers/references/cli/commands/introduction
-- Support: https://app.base44.com/support
-- Stripe Docs: https://stripe.com/docs
+**WebSocket connects to the wrong host**: `src/lib/socket.js` derives the Socket.io server URL from `window.location` by default, so it always matches whatever domain the page was loaded from — no configuration needed unless you deliberately split the Socket.io server onto a different host (`VITE_SOCKET_SERVER_URL`).

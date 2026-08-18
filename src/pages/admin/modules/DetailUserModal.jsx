@@ -15,9 +15,11 @@ const Row = ({ label, value }) => (
 export default function DetailUserModal({ open, onOpenChange, user }) {
   if (!user) return null;
 
+  // Ưu tiên dữ liệu Supabase truyền vào qua `user` (đúng trên mọi thiết bị), chỉ rơi về
+  // cache cục bộ của Admin nếu Supabase chưa có (vd chưa cấu hình).
   const uData = getUserData(user.id);
-  const currentBalance = uData.balance !== undefined ? uData.balance : (user.balance || 0);
-  const bankLinked = uData.linked?.find((l) => l.type === "bank") || user.bankInfo || null;
+  const currentBalance = user.balance !== undefined ? user.balance : (uData.balance !== undefined ? uData.balance : 0);
+  const bankLinked = user.bankInfo || uData.linked?.find((l) => l.type === "bank") || null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

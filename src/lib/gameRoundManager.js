@@ -2,6 +2,8 @@ import { computeDrawLabels } from "@/components/game/gameConfig";
 import { getGameConfig, getFastForwardState, clearFastForwardState } from "@/lib/gameStore";
 import { getUserData, updateUserData } from "./userData";
 import { pushNotification } from "./localNotifications";
+import { isSupabaseConfigured } from "./supabase";
+import { spSyncGameBet } from "./supabaseService";
 
 // Fixed anchor epoch in seconds (e.g. 2026-01-01 00:00:00 UTC)
 const ANCHOR_TIME = 1767225600;
@@ -131,6 +133,7 @@ export function settlePendingBets(userId) {
   if (!hasPending) return;
 
   let notificationsToSend = [];
+  let betsToSync = [];
 
   updateUserData(userId, (latestDB) => {
     if (!latestDB || !latestDB.bets || latestDB.bets.length === 0) return latestDB;
@@ -140,6 +143,7 @@ export function settlePendingBets(userId) {
     let profitAdd = 0;
     const newTxLogs = [];
     notificationsToSend = [];
+    betsToSync = [];
 
     const updatedBets = latestDB.bets.map((bet) => {
       const isPending = bet.status === "PENDING" || bet.status === "pending";
@@ -177,7 +181,7 @@ export function settlePendingBets(userId) {
             time: new Date().toLocaleString("vi-VN"),
           });
 
-          return {
+          const settledWinBet = {
             ...bet,
             lockedOdds,
             status: "SETTLED_WIN",
@@ -185,6 +189,8 @@ export function settlePendingBets(userId) {
             winAmount: payout,
             settledAt: new Date().toISOString(),
           };
+          betsToSync.push(settledWinBet);
+          return settledWinBet;
         } else {
           profitAdd -= bet.amount;
           notificationsToSend.push({
@@ -193,7 +199,7 @@ export function settlePendingBets(userId) {
             body: `Thua $${bet.amount} USD tại ${bet.game || gameId} (${bet.label})`,
           });
 
-          return {
+          const settledLoseBet = {
             ...bet,
             lockedOdds,
             status: "SETTLED_LOSE",
@@ -201,6 +207,8 @@ export function settlePendingBets(userId) {
             winAmount: 0,
             settledAt: new Date().toISOString(),
           };
+          betsToSync.push(settledLoseBet);
+          return settledLoseBet;
         }
       }
 
@@ -230,5 +238,10 @@ export function settlePendingBets(userId) {
     notificationsToSend.forEach((notif) => {
       pushNotification(userId, notif);
     });
+  }
+
+  // Đẩy kết quả tất toán (thắng/thua) lên Supabase để mọi thiết bị thấy đúng lịch sử cược
+  if (betsToSync.length > 0 && isSupabaseConfigured()) {
+    betsToSync.forEach((b) => { spSyncGameBet(b).catch(() => {}); });
   }
 }

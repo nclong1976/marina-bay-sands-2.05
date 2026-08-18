@@ -23,6 +23,8 @@ import { resolveInitialTier, getTier } from "@/components/lobby/lobbyData";
 import DepositModal from "@/components/profile/DepositModal";
 import { handleDepositRequest } from "@/lib/depositHandler";
 import { getGameConfig, getCustomGames } from "@/lib/gameStore";
+import { spCreateWithdrawRequest, spUpdateUser } from "@/lib/supabaseService";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -107,8 +109,42 @@ export default function Home() {
     setOpenWithdraw(true);
   };
 
-  const submitWithdraw = ({ amount, bank }) => {
-    update((d) => ({ ...d, balance: +(d.balance - amount).toFixed(2) }));
+  const submitWithdraw = ({ amount, bank, requestId, request }) => {
+    const newReq = request || {
+      id: requestId || "WD" + Date.now(),
+      amount,
+      bank,
+      status: "pending",
+      time: new Date().toLocaleString("vi-VN"),
+    };
+
+    update((d) => ({
+      ...d,
+      balance: +(d.balance - amount).toFixed(2),
+      withdrawRequests: [newReq, ...(d.withdrawRequests || [])],
+      txs: [{
+        txid: newReq.id,
+        type: "withdraw",
+        amount,
+        bank: bank?.bankName,
+        status: "processing",
+        time: new Date().toLocaleString("vi-VN"),
+      }, ...(d.txs || [])],
+    }));
+
+    // Đẩy đơn rút tiền lên Supabase — bắt buộc để Admin thấy & duyệt được đơn này
+    // dù người dùng gửi yêu cầu từ bất kỳ thiết bị nào.
+    if (isSupabaseConfigured() && authUser?.id) {
+      spCreateWithdrawRequest({
+        id: newReq.id,
+        userId: authUser.id,
+        account: authUser.account,
+        fullName: authUser.full_name,
+        amount,
+        bankInfo: bank,
+      }).catch(() => {});
+    }
+
     toast({ title: "Gửi yêu cầu rút tiền thành công", description: `$${amount} USD · ${bank?.bankName}` });
     push({ type: "balance", title: "Rút tiền thành công", body: `-$${amount} USD · ${bank?.bankName}` });
     setOpenWithdraw(false);
@@ -116,6 +152,15 @@ export default function Home() {
 
   const addLinked = (acct) => {
     update((d) => ({ ...d, linked: [acct, ...d.linked] }));
+
+    // Đẩy thông tin ngân hàng lên Supabase — bắt buộc để tài khoản ngân hàng đã liên kết
+    // hiển thị đúng khi người dùng đăng nhập trên thiết bị khác.
+    if (isSupabaseConfigured() && authUser?.id && acct?.type === "bank") {
+      spUpdateUser(authUser.id, {
+        bankInfo: { bankName: acct.bankName, accountNumber: acct.accountNumber, holder: acct.holder },
+      }).catch(() => {});
+    }
+
     toast({ title: "Liên kết tài khoản thành công" });
   };
 

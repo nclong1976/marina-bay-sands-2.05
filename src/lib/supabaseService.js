@@ -1,5 +1,36 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 
+// Đăng ký kênh Realtime dùng chung theo `key` — nhiều component (Home, HomeHeader,
+// GamePlayScreen...) có thể cùng lắng nghe realtime cho CÙNG một user/kênh chat trên
+// cùng một trang. Supabase trả về LẠI cùng một channel instance khi gọi `.channel()` với
+// cùng tên topic, nên gọi `.on().subscribe()` lần thứ 2 trên kênh đã subscribe sẽ crash
+// ("cannot add postgres_changes callbacks ... after subscribe()"). Dùng registry đếm số
+// người nghe để chỉ tạo/subscribe kênh MỘT LẦN và chỉ removeChannel khi không còn ai lắng nghe.
+const sharedChannels = new Map();
+
+const subscribeShared = (key, createChannel) => (onMessage) => {
+  if (!isSupabaseConfigured() || !supabase) return () => {};
+
+  let entry = sharedChannels.get(key);
+  if (!entry) {
+    const listeners = new Set();
+    const channel = createChannel((payload) => {
+      listeners.forEach((cb) => cb(payload));
+    });
+    entry = { channel, listeners };
+    sharedChannels.set(key, entry);
+  }
+  entry.listeners.add(onMessage);
+
+  return () => {
+    entry.listeners.delete(onMessage);
+    if (entry.listeners.size === 0) {
+      supabase.removeChannel(entry.channel);
+      sharedChannels.delete(key);
+    }
+  };
+};
+
 /**
  * Register user in Supabase CSDL (users_profile table)
  */
@@ -143,6 +174,21 @@ export const spAdjustBalance = async (userId, newBalance, txData = null) => {
 };
 
 /**
+ * Xoá vĩnh viễn tài khoản khỏi Supabase — dùng khi Admin xoá người dùng, để tài khoản
+ * không thể "hồi sinh" hoặc vẫn đăng nhập được từ một thiết bị khác.
+ */
+export const spDeleteUser = async (userId) => {
+  if (!isSupabaseConfigured() || !userId) return false;
+
+  const { error } = await supabase.from('users_profile').delete().eq('id', userId);
+  if (error) {
+    console.error('Supabase delete user error:', error);
+    return false;
+  }
+  return true;
+};
+
+/**
  * Update user details in Supabase
  */
 export const spUpdateUser = async (userId, patch) => {
@@ -212,26 +258,18 @@ export const spSendChatMessage = async (msg) => {
   return data;
 };
 
-export const spSubscribeChat = (onNewMessage) => {
-  if (!isSupabaseConfigured() || !supabase) return () => {};
-
-  const channel = supabase
+export const spSubscribeChat = subscribeShared('public:chat_messages', (emit) =>
+  supabase
     .channel('public:chat_messages')
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'chat_messages' },
       (payload) => {
-        if (payload.new) {
-          onNewMessage(payload.new);
-        }
+        if (payload.new) emit(payload.new);
       }
     )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-};
+    .subscribe()
+);
 
 /**
  * Banners Support
@@ -255,22 +293,20 @@ export const spFetchBanners = async () => {
 export const spSubscribeUserProfile = (userId, onProfileChange) => {
   if (!isSupabaseConfigured() || !supabase || !userId) return () => {};
 
-  const channel = supabase
-    .channel(`public:users_profile:${userId}`)
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'users_profile' },
-      (payload) => {
-        if (payload.new && (payload.new.id === userId || payload.new.account === userId)) {
-          onProfileChange(payload.new);
+  return subscribeShared(`public:users_profile:${userId}`, (emit) =>
+    supabase
+      .channel(`public:users_profile:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'users_profile' },
+        (payload) => {
+          if (payload.new && (payload.new.id === userId || payload.new.account === userId)) {
+            emit(payload.new);
+          }
         }
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+      )
+      .subscribe()
+  )(onProfileChange);
 };
 
 /**
@@ -302,6 +338,133 @@ export const spFetchUserWithdrawRequests = async (userId) => {
     .order('created_at', { ascending: false });
 
   if (error) return null;
+  return data;
+};
+
+/**
+ * Game Bets Sync (Multi-Device) — đẩy vé cược (đang chờ/đã tất toán) lên Supabase
+ * để mọi thiết bị đăng nhập cùng tài khoản đều thấy đúng lịch sử cược.
+ */
+export const spSyncGameBet = async (bet) => {
+  if (!isSupabaseConfigured() || !bet) return null;
+
+  const id = String(bet.betId || bet.id);
+  const status = bet.status === 'SETTLED_WIN' ? 'win' : bet.status === 'SETTLED_LOSE' ? 'loss' : 'pending';
+
+  const row = {
+    id,
+    user_id: bet.userId,
+    game_type: bet.gameId || bet.game || 'unknown',
+    amount: Number(bet.amount) || 0,
+    payout: Number(bet.winAmount) || 0,
+    status,
+    details: {
+      period: bet.period,
+      key: bet.key || bet.itemKey,
+      label: bet.label,
+      lockedOdds: bet.lockedOdds ?? bet.odds,
+      tabId: bet.tabId,
+      tabLabel: bet.tabLabel,
+      time: bet.time,
+      created_date: bet.created_date || bet.timestamp,
+      game: bet.game,
+    },
+  };
+
+  // Không dùng upsert()/onConflict: một số môi trường Supabase có thể chưa có ràng buộc
+  // UNIQUE/PRIMARY KEY thực sự trên cột id (lệch với supabase/schema.sql), khiến upsert
+  // báo lỗi Postgres 42P10 ("no unique or exclusion constraint matching ON CONFLICT") và
+  // vé cược không bao giờ được lưu. Tự làm UPSERT ở tầng ứng dụng: thử UPDATE trước, nếu
+  // không có dòng nào khớp thì INSERT mới — hoạt động đúng bất kể ràng buộc DB thế nào.
+  const { data: updated, error: updateError } = await supabase
+    .from('game_bets')
+    .update(row)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (updateError) {
+    console.error('Supabase sync bet (update) error:', updateError);
+  }
+
+  if (updated) return updated;
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('game_bets')
+    .insert([row])
+    .select()
+    .maybeSingle();
+
+  if (insertError) {
+    console.error('Supabase sync bet (insert) error:', insertError);
+  }
+  return inserted;
+};
+
+export const spFetchUserGameBets = async (userId, limit = 300) => {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  const { data, error } = await supabase
+    .from('game_bets')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+  return data;
+};
+
+/**
+ * Admin: lấy TOÀN BỘ vé cược của TẤT CẢ người dùng (bất kể đăng nhập/chơi ở thiết bị nào)
+ */
+export const spListAllGameBets = async (limit = 500) => {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data, error } = await supabase
+    .from('game_bets')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+  return data;
+};
+
+/**
+ * Admin: lấy TOÀN BỘ đơn rút tiền của TẤT CẢ người dùng để Admin luôn kiểm soát được
+ * hàng đợi duyệt rút tiền dù người dùng gửi đơn từ thiết bị nào.
+ */
+export const spListAllWithdrawRequests = async (limit = 500) => {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data, error } = await supabase
+    .from('withdraw_requests')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+  return data;
+};
+
+/**
+ * Admin: duyệt/từ chối đơn rút tiền — cập nhật trạng thái trên Supabase để mọi thiết bị
+ * (kể cả thiết bị của người dùng gửi đơn) thấy đúng kết quả tức thì.
+ */
+export const spUpdateWithdrawRequestStatus = async (id, status) => {
+  if (!isSupabaseConfigured() || !id) return null;
+
+  const { data, error } = await supabase
+    .from('withdraw_requests')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error('Supabase update withdraw request error:', error);
+  }
   return data;
 };
 

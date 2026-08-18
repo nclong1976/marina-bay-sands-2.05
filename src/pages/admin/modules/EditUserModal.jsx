@@ -30,9 +30,10 @@ export default function EditUserModal({ open, onOpenChange, user, onSaved }) {
       setNewPassword("");
       setAdminNote(user.adminNote || "");
 
-      // Lấy thông tin ngân hàng đã liên kết
+      // Lấy thông tin ngân hàng đã liên kết — ưu tiên dữ liệu Supabase truyền vào qua `user`
+      // (đúng trên mọi thiết bị), chỉ rơi về cache cục bộ nếu Supabase chưa có.
       const uData = getUserData(user.id);
-      const bankLinked = uData.linked?.find((l) => l.type === "bank") || user.bankInfo || {};
+      const bankLinked = user.bankInfo || uData.linked?.find((l) => l.type === "bank") || {};
       setBankName(bankLinked.bankName || "");
       setBankAccount(bankLinked.accountNumber || "");
       setBankHolder(bankLinked.holder || user.full_name || "");

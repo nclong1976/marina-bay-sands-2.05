@@ -130,7 +130,9 @@ if (process.env.NODE_ENV !== "production") {
 } else {
   const distPath = path.join(process.cwd(), 'dist');
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  // SPA fallback: Express 5's router (path-to-regexp v8) no longer accepts a bare
+  // '*' path string, so a plain path-less middleware is used instead of app.get('*', ...).
+  app.use((req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
