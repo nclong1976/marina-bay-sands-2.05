@@ -13,11 +13,19 @@ inert with no `VITE_BASE44_APP_ID` set. The real stack is:
 
 Because Socket.io needs a persistent connection, this **cannot** be hosted on a
 static-site host (Vercel static, Netlify, GitHub Pages) or on serverless
-functions. It needs a platform that runs a long-lived Node process — Railway,
-Render, Fly.io, or a VPS.
+functions. It needs a platform that runs a long-lived Node process.
 
-This guide covers **Railway**, since that's what a persistent Node+Socket.io
-service is simplest on.
+This guide covers **Render**.
+
+## ⚠️ Free plan vs paid plan — read before choosing
+
+Render's **free** web service plan spins the instance down after ~15 minutes of
+no HTTP traffic, and cold-starts (30s+) on the next request. That kills every
+open Socket.io connection when it happens, and admins/users will see "connecting..."
+until the instance wakes back up. It's fine for a first smoke test, but **not**
+acceptable once real users are relying on live chat/odds/notifications. Use at
+least the **Starter** paid plan (~$7/mo) for anything beyond testing —
+`render.yaml` in this repo is already set to `plan: starter`.
 
 ## 1. Required environment variables
 
@@ -31,40 +39,60 @@ VITE_SUPABASE_ANON_KEY=sb_publishable_xxxxxxxxxxxx
 Get these from your Supabase project dashboard → Project Settings → API.
 
 **Important**: these are Vite env vars, which get baked into the JS bundle at
-**build time**. On Railway, set them as project Variables before the first
-deploy (or trigger a new deploy after adding/changing them) — setting them
-after a build won't retroactively apply.
+**build time**. Set them in Render *before* the first build runs — adding or
+changing them later requires a manual redeploy to take effect (Render does
+this automatically when you save a changed env var, but it's worth knowing
+why a stale value might otherwise stick around).
 
-## 2. Deploy to Railway
+## 2. Deploy to Render
+
+Two ways to do this — pick one.
+
+### Option A — Blueprint (uses `render.yaml` in this repo, fewer manual steps)
 
 1. Push this repo to GitHub if it isn't already (`git remote -v` to check).
-2. Go to [railway.app](https://railway.app), sign in, **New Project → Deploy from GitHub repo**, and select this repository.
-3. Railway auto-detects Node.js via Nixpacks. This repo includes `railway.json`, which sets:
-   - Build command: `npm run build`
-   - Start command: `npm start` (runs `server/index.js` with `NODE_ENV=production`)
-   - Health check: `/api/health`
-4. In the Railway project → **Variables** tab, add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-5. Trigger a deploy (Railway does this automatically after you add variables / push to the branch). Watch the build logs; wait for the health check to go green.
-6. Open the `*.up.railway.app` URL Railway gives you and confirm the app loads, and that you can register/log in — this proves Supabase connectivity is correct before you touch DNS.
+2. Go to the [Render Dashboard](https://dashboard.render.com) → **New → Blueprint**.
+3. Connect this GitHub repo. Render reads `render.yaml` and proposes a `sands-club` web service with the build/start commands and health check already set.
+4. Render will prompt you to fill in the two env vars marked `sync: false` in the blueprint (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) — paste your Supabase values.
+5. Click **Apply** to create and deploy the service.
 
-Railway sets `PORT` automatically; `server/index.js` already reads `process.env.PORT`, so no change needed there.
+### Option B — Manual Web Service (if the Blueprint doesn't pick up correctly)
+
+1. Render Dashboard → **New → Web Service** → connect this GitHub repo.
+2. Runtime: **Node**. Region: pick one close to your users (e.g. Singapore).
+3. Build Command: `npm install && npm run build`
+4. Start Command: `npm start`
+5. Plan: **Starter** or higher (see the free-plan warning above).
+6. Under **Environment**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `NODE_ENV` = `production` (belt-and-suspenders — `npm start` already forces this itself)
+7. Under **Health Check Path**, set `/api/health`.
+8. Click **Create Web Service**.
+
+Either way, Render sets `PORT` automatically; `server/index.js` already reads
+`process.env.PORT`, so no change needed there. Watch the deploy logs until the
+service shows **Live**, then open the `*.onrender.com` URL Render gives you and
+confirm the app loads and you can register/log in — this proves Supabase
+connectivity is correct before you touch DNS.
 
 ## 3. Point your domain at it
 
-1. In the Railway project → **Settings → Networking → Custom Domain**, click **Add Domain**, and enter your domain (e.g. `sandsclub.com` or a subdomain like `app.sandsclub.com`).
-2. Railway shows you a DNS target — usually a **CNAME** value (something like `xxxxx.up.railway.app`). For an apex/root domain (`sandsclub.com` with no subdomain), Railway will tell you whether it needs a CNAME or an `A`/`ALIAS`/`ANAME` record instead, since plain CNAME isn't valid on a root domain in classic DNS — if your registrar doesn't support ALIAS/ANAME/CNAME-flattening on the apex, use a subdomain like `www` or `app` and redirect the root to it.
-3. Go to your domain registrar's DNS management panel (wherever the domain is registered) and add the record Railway showed you:
-   - Subdomain (e.g. `app.sandsclub.com`): add a **CNAME** record, host `app`, value = the Railway target.
-   - Root domain (`sandsclub.com`): add whatever record type your registrar offers for apex domains pointing at a CNAME target (ALIAS/ANAME, or Cloudflare's proxied CNAME flattening).
-4. Wait for DNS propagation (usually minutes, can take up to 24-48h depending on registrar/TTL). Railway auto-provisions a free SSL certificate (Let's Encrypt) once it detects the DNS record is live — no manual certificate work needed.
-5. Once the custom domain shows "Active" in Railway, visit it and confirm the app loads over HTTPS.
+1. In the Render service → **Settings → Custom Domains**, click **Add Custom Domain** and enter your domain (e.g. `sandsclub.com` or a subdomain like `app.sandsclub.com`).
+2. Render shows you the DNS record to add:
+   - **Subdomain** (e.g. `app.sandsclub.com`): a **CNAME** record pointing at your service's `onrender.com` hostname.
+   - **Root/apex domain** (`sandsclub.com`, no subdomain): Render will give you an **A record** (IP address) to use instead, since plain CNAME isn't valid on a root domain in classic DNS. If your registrar supports ALIAS/ANAME/CNAME-flattening on the apex, that also works and is usually preferable to a bare A record.
+3. Go to your domain registrar's DNS management panel (wherever the domain is registered) and add exactly the record Render showed you.
+4. Wait for DNS propagation (usually minutes, can take up to 24-48h depending on registrar/TTL). Render auto-provisions a free SSL certificate (Let's Encrypt) once it detects the DNS record is live — no manual certificate work needed.
+5. Once the custom domain shows **Verified** in Render, visit it and confirm the app loads over HTTPS.
 
 ## 4. Post-deploy checklist
 
-- [ ] `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` set correctly in Railway Variables
+- [ ] `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` set correctly in Render's env vars
+- [ ] Plan is **Starter or higher** (not Free) if this is meant for real users, not just a smoke test
 - [ ] Register a test account and confirm it appears in Supabase's `users_profile` table
 - [ ] Log in as `admin` / `leo1102` (seeded accounts — **change these passwords or lock these accounts down before going fully live**, see Security below) and confirm the admin panel loads
-- [ ] Custom domain shows "Active" in Railway with a valid HTTPS padlock
+- [ ] Custom domain shows **Verified** in Render with a valid HTTPS padlock
 - [ ] Socket.io connects (open browser dev tools → Network → WS, confirm a websocket connection to your domain, not `localhost`)
 - [ ] `/api/health` responds at `https://yourdomain.com/api/health`
 
@@ -76,13 +104,15 @@ Railway sets `PORT` automatically; `server/index.js` already reads `process.env.
 
 ## Rollback
 
-Railway keeps deployment history — open the project → **Deployments** tab, and click **Redeploy** on any previous successful build to roll back instantly.
+Render keeps deployment history — open the service → **Events**/**Deploys** tab, and use **Rollback** (or manually redeploy a previous commit) to revert instantly.
 
 ## Troubleshooting
 
-**Build fails**: check the Railway build logs. Common cause: a `VITE_SUPABASE_*` variable typo or missing value — the app will still build without them, but Supabase calls will silently no-op (`isSupabaseConfigured()` returns false), so most features will look "broken" (no admin data, no cross-device sync) without ever erroring.
+**Build fails**: check the Render build logs. Common cause: a `VITE_SUPABASE_*` variable typo or missing value — the app will still build without them, but Supabase calls will silently no-op (`isSupabaseConfigured()` returns false), so most features will look "broken" (no admin data, no cross-device sync) without ever erroring.
 
-**Site loads but shows a blank page / 502**: check `npm start` logs in Railway. If you see route-registration errors, verify `server/index.js`'s catch-all is the path-less `app.use((req, res) => ...)` form (Express 5 dropped support for bare `app.get('*', ...)`).
+**Site loads but shows a blank page / 502**: check the service logs. If you see route-registration errors, verify `server/index.js`'s catch-all is the path-less `app.use((req, res) => ...)` form (Express 5 dropped support for bare `app.get('*', ...)`).
+
+**Realtime/chat keeps dropping and reconnecting**: almost always the free-plan idle-spindown described above. Upgrade to Starter or higher.
 
 **Custom domain stuck on "Pending"**: DNS hasn't propagated yet, or the record type is wrong for an apex domain. Use `dig yourdomain.com` or https://dnschecker.org to verify the record is visible publicly.
 
