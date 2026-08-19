@@ -6,10 +6,10 @@ import { Panel, TableWrap, Th, Td, Empty, Badge, inputCls, ConfirmDialog } from 
 import { localListUsers } from "@/lib/localAuth";
 import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
-import { getUserData, updateUserData } from "@/lib/userData";
-import { pushNotification } from "@/lib/localNotifications";
-import { spListAllWithdrawRequests, spUpdateWithdrawRequestStatus, spGetUserProfile } from "@/lib/supabaseService";
+import { getUserData } from "@/lib/userData";
+import { spListAllWithdrawRequests } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { decideWithdrawRequest } from "@/lib/withdrawActions";
 
 const STATUS = ["pending", "processing", "completed", "rejected"];
 
@@ -104,56 +104,14 @@ export default function Transactions() {
         await base44.entities.Transaction.update(tx.id, { status });
       }
 
-      // 2. Cập nhật đơn rút tiền
+      // 2. Cập nhật đơn rút tiền — dùng chung cơ chế duyệt/từ chối với thẻ người dùng ở
+      // trang Quản Lý Người Dùng, tránh hai nơi xử lý lệch logic hoàn tiền/thông báo.
       if (tx.userId) {
-        // Supabase là nguồn chuẩn — cập nhật trạng thái đơn ngay để đúng trên mọi thiết bị
-        let authoritativeBalance = null;
-        if (isSupabaseConfigured()) {
-          await spUpdateWithdrawRequestStatus(tx.id, status === "completed" ? "approved" : "rejected");
-
-          // Lấy số dư THẬT từ Supabase làm mốc hoàn tiền, tránh cộng hoàn nhầm trên cache
-          // cục bộ trống/lỗi thời nếu user chưa từng đăng nhập trên thiết bị Admin.
-          if (status === "rejected") {
-            try {
-              const spProfile = await spGetUserProfile(tx.userId);
-              if (spProfile && typeof spProfile.balance === "number") {
-                authoritativeBalance = spProfile.balance;
-              }
-            } catch { /* ignore */ }
-          }
-        }
-
-        updateUserData(tx.userId, (d) => {
-          const updatedReqs = (d.withdrawRequests || []).map((r) => {
-            if (r.id === tx.id) {
-              return { ...r, status: status === "completed" ? "approved" : "rejected" };
-            }
-            return r;
-          });
-
-          // Khi người dùng gửi đơn rút, tiền đã bị trừ tạm thời.
-          // Nếu Admin duyệt -> giữ nguyên bị trừ. Nếu Admin từ chối -> hoàn lại tiền vào ví người dùng (+tx.amount)!
-          const baseBalance = authoritativeBalance !== null ? authoritativeBalance : d.balance;
-          let nextBalance = baseBalance;
-          if (status === "rejected") {
-            nextBalance = +(baseBalance + tx.amount).toFixed(2);
-          }
-
-          return {
-            ...d,
-            balance: nextBalance,
-            withdrawRequests: updatedReqs,
-            txs: (d.txs || []).map((t) => (t.txid === tx.id ? { ...t, status: status === "completed" ? "completed" : "rejected" } : t)),
-          };
-        });
-
-        // Thông báo cho người dùng
-        pushNotification(tx.userId, {
-          type: "balance",
-          title: status === "completed" ? "Đơn rút tiền đã được duyệt!" : "Đơn rút tiền bị từ chối",
-          body: status === "completed"
-            ? `Admin đã duyệt đơn rút $${tx.amount.toLocaleString()} USD. Tiền sẽ về tài khoản ngân hàng trong ít phút.`
-            : `Đơn rút $${tx.amount.toLocaleString()} USD bị từ chối. Vui lòng liên hệ hỗ trợ để biết chi tiết.`,
+        await decideWithdrawRequest({
+          userId: tx.userId,
+          requestId: tx.id,
+          amount: tx.amount,
+          status: status === "completed" ? "approved" : "rejected",
         });
       }
 

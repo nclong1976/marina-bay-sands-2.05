@@ -11,7 +11,7 @@ import { Wallet, PlusCircle, MinusCircle, FileText } from "lucide-react";
 
 const inputCls = "w-full bg-[#0d102b] border border-white/15 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-[#7033ff] transition-all";
 
-export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, updateUserData: propUpdateUserData }) {
+export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, updateUserData: propUpdateUserData, initialMode = "add" }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -27,7 +27,7 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
       setCurrentBalance(cleanBal);
       setAmount("");
       setReason("");
-      setMode("add");
+      setMode(initialMode);
 
       // Lấy số dư THẬT từ Supabase — cache cục bộ trên trình duyệt Admin có thể trống/lỗi
       // thời nếu người dùng này chưa từng đăng nhập trên chính thiết bị của Admin.
@@ -39,7 +39,7 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
         }).catch(() => {});
       }
     }
-  }, [user]);
+  }, [user, initialMode]);
 
   const handleAdjust = async () => {
     if (!user) return;

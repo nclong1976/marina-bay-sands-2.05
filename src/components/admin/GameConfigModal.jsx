@@ -33,7 +33,7 @@ import {
 } from "@/lib/gameStore";
 import { useToast } from "@/components/ui/use-toast";
 
-export default function GameConfigModal({ open, onOpenChange, game, onSaved }) {
+export default function GameConfigModal({ open, onOpenChange, game, onSaved, initialTab = "general" }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("general"); // "general" | "scheduler"
 
@@ -88,9 +88,9 @@ export default function GameConfigModal({ open, onOpenChange, game, onSaved }) {
         cap_so: freshConfig.odds?.cap_so ?? 12,
       });
       setShowDiffConfirm(false);
-      setActiveTab("general");
+      setActiveTab(initialTab);
     }
-  }, [game, open]);
+  }, [game, open, initialTab]);
 
   const refreshConfigState = () => {
     if (!game) return;

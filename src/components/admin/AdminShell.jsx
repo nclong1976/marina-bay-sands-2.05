@@ -1,60 +1,117 @@
 import React, { useState } from "react";
-import { LayoutDashboard, Users, Gamepad2, Ticket, ArrowLeftRight, Bell, Settings, LogOut, Menu, Shield, MessageSquare, Video } from "lucide-react";
+import { LayoutDashboard, Users, Gamepad2, Ticket, ArrowLeftRight, Bell, Settings, LogOut, Menu, Shield, MessageSquare, Video, ChevronLeft, ChevronRight } from "lucide-react";
 
-const NAV = [
-  { id: "overview", label: "Tổng quan", icon: LayoutDashboard },
-  { id: "users", label: "Người dùng", icon: Users },
-  { id: "halls", label: "Sảnh chơi", icon: Gamepad2 },
-  { id: "bets", label: "Đặt cược", icon: Ticket },
-  { id: "transactions", label: "Giao dịch", icon: ArrowLeftRight },
-  { id: "notifications", label: "Thông báo", icon: Bell },
-  { id: "banners", label: "Quản lý Banner", icon: Video },
-  { id: "chat", label: "Nhắn tin", icon: MessageSquare },
-  { id: "settings", label: "Cài đặt", icon: Settings },
+// Nhóm theo nghiệp vụ để dễ quét mắt hơn là 1 danh sách 9 mục liền mạch:
+// Tổng quan riêng · Vận hành (người dùng/sảnh/cược/giao dịch) · Nội dung (thông báo/banner/nhắn tin) · Hệ thống.
+const NAV_GROUPS = [
+  [{ id: "overview", label: "Tổng quan", icon: LayoutDashboard }],
+  [
+    { id: "users", label: "Người dùng", icon: Users },
+    { id: "halls", label: "Sảnh chơi", icon: Gamepad2 },
+    { id: "bets", label: "Đặt cược", icon: Ticket },
+    { id: "transactions", label: "Giao dịch", icon: ArrowLeftRight },
+  ],
+  [
+    { id: "notifications", label: "Thông báo", icon: Bell },
+    { id: "banners", label: "Quản lý Banner", icon: Video },
+    { id: "chat", label: "Nhắn tin", icon: MessageSquare },
+  ],
+  [{ id: "settings", label: "Cài đặt", icon: Settings }],
 ];
+
+const COLLAPSE_KEY = "admin_sidebar_collapsed";
 
 export default function AdminShell({ active, onNavigate, user, onLogout, unread, children }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const go = (id) => { onNavigate(id); setOpen(false); };
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
-  const SidebarInner = (
+  // isCollapsed chỉ áp dụng cho sidebar cố định trên desktop — sidebar mobile luôn hiện
+  // đầy đủ nhãn vì nó là lớp phủ tạm thời, không tranh chỗ với nội dung chính.
+  const renderSidebar = (isCollapsed) => (
     <div className="flex flex-col h-full">
-      <div className="h-16 flex items-center gap-2 px-5 border-b border-white/10 shrink-0">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7033ff] to-[#4b00ff] flex items-center justify-center">
-          <Shield className="w-5 h-5 text-white" />
+      <div className={`h-14 flex items-center gap-2 border-b border-white/10 shrink-0 ${isCollapsed ? "justify-center px-2" : "px-4"}`}>
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7033ff] to-[#4b00ff] flex items-center justify-center shrink-0">
+          <Shield className="w-4 h-4 text-white" />
         </div>
-        <div>
-          <p className="text-white font-bold leading-none">Sands</p>
-          <p className="text-[10px] text-white/50 mt-0.5">Admin Console</p>
-        </div>
+        {!isCollapsed && (
+          <div className="min-w-0">
+            <p className="text-white font-bold leading-none text-sm truncate">Sands</p>
+            <p className="text-[10px] text-white/50 mt-0.5 truncate">Admin Console</p>
+          </div>
+        )}
       </div>
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {NAV.map((n) => {
-          const Icon = n.icon;
-          const on = active === n.id;
-          return (
-            <button key={n.id} onClick={() => go(n.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${on ? "bg-gradient-to-r from-[#7033ff]/30 to-[#4b00ff]/20 text-white border border-[#7033ff]/40" : "text-white/65 hover:bg-white/5 hover:text-white border border-transparent"}`}>
-              <Icon className="w-4 h-4" />
-              <span>{n.label}</span>
-            </button>
-          );
-        })}
+
+      <nav className="flex-1 p-2.5 overflow-y-auto">
+        {NAV_GROUPS.map((group, gi) => (
+          <div key={gi} className={gi > 0 ? "mt-2 pt-2 border-t border-white/5 space-y-0.5" : "space-y-0.5"}>
+            {group.map((n) => {
+              const Icon = n.icon;
+              const on = active === n.id;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => go(n.id)}
+                  title={isCollapsed ? n.label : undefined}
+                  className={`w-full flex items-center gap-3 py-2 rounded-lg text-sm transition-colors border ${
+                    isCollapsed ? "justify-center px-2" : "px-3"
+                  } ${
+                    on
+                      ? "bg-gradient-to-r from-[#7033ff]/30 to-[#4b00ff]/20 text-white border-[#7033ff]/40"
+                      : "text-white/65 hover:bg-white/5 hover:text-white border-transparent"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {!isCollapsed && <span className="truncate">{n.label}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
-      <div className="p-3 border-t border-white/10 shrink-0">
-        <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-white/65 hover:bg-white/5 hover:text-white"><LogOut className="w-4 h-4" /> Đăng xuất</button>
+
+      <div className="p-2.5 border-t border-white/10 shrink-0">
+        <button
+          onClick={onLogout}
+          title={isCollapsed ? "Đăng xuất" : undefined}
+          className={`w-full flex items-center gap-2 py-2 rounded-lg text-sm text-white/65 hover:bg-white/5 hover:text-white ${isCollapsed ? "justify-center px-2" : "px-3"}`}
+        >
+          <LogOut className="w-4 h-4 shrink-0" /> {!isCollapsed && "Đăng xuất"}
+        </button>
       </div>
     </div>
   );
 
   return (
     <div className="min-h-[100dvh] bg-[#0f1225] text-white flex">
-      <aside className="hidden lg:flex w-64 shrink-0 border-r border-white/10 bg-[#0c0e1f] sticky top-0 h-[100dvh]">{SidebarInner}</aside>
+      <aside className={`hidden lg:flex shrink-0 border-r border-white/10 bg-[#0c0e1f] sticky top-0 h-[100dvh] relative transition-[width] duration-200 ${collapsed ? "w-[68px]" : "w-56"}`}>
+        {renderSidebar(collapsed)}
+        <button
+          onClick={toggleCollapsed}
+          title={collapsed ? "Mở rộng sidebar" : "Thu gọn sidebar"}
+          className="absolute -right-3 top-16 w-6 h-6 rounded-full bg-[#161936] border border-white/15 flex items-center justify-center text-white/60 hover:text-white hover:border-white/30 transition-colors z-10"
+        >
+          {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+        </button>
+      </aside>
 
       {open && (
         <>
           <div className="lg:hidden fixed inset-0 bg-black/60 z-40" onClick={() => setOpen(false)} />
-          <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-64 z-50 bg-[#0c0e1f] border-r border-white/10">{SidebarInner}</aside>
+          <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-64 z-50 bg-[#0c0e1f] border-r border-white/10">{renderSidebar(false)}</aside>
         </>
       )}
 

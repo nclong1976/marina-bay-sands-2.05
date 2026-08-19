@@ -1,54 +1,26 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useToast } from "@/components/ui/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import {
   Search,
-  Lock,
-  Unlock,
-  Eye,
-  Wallet,
-  Bell,
-  Trash2,
-  UserPlus,
   ChevronLeft,
   ChevronRight,
-  Edit2,
-  RefreshCw,
-  CreditCard,
   UserCheck,
 } from "lucide-react";
-import { Panel, TableWrap, Th, Td, Empty, Badge, inputCls, ConfirmDialog } from "../ui";
+import { Panel, inputCls, ConfirmDialog } from "../ui";
 import { localListUsers, adminToggleLock, adminDeleteUser } from "@/lib/localAuth";
 import { isSecretChatUser } from "@/lib/localChat";
 import { getUserData, updateUserData } from "@/lib/userData";
 import { useAuth } from "@/lib/AuthContext";
 import { spListUsers } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { listPendingWithdrawRequests, decideWithdrawRequest } from "@/lib/withdrawActions";
 
 import EditUserModal from "./EditUserModal";
 import BalanceAdjustModal from "./BalanceAdjustModal";
-import DetailUserModal from "./DetailUserModal";
+import UserBankCard from "./UserBankCard";
 
-const PAGE = 8;
-
-const IconBtn = ({ children, onClick, title, danger, success }) => (
-  <button
-    type="button"
-    title={title}
-    onClick={onClick}
-    className={`p-1.5 rounded-lg transition-colors ${
-      danger
-        ? "text-rose-400 hover:bg-rose-500/20"
-        : success
-        ? "text-emerald-400 hover:bg-emerald-500/20"
-        : "text-white/70 hover:bg-white/10 hover:text-white"
-    }`}
-  >
-    {children}
-  </button>
-);
+const PAGE = 9;
 
 export default function Users() {
   const { toast } = useToast();
@@ -59,18 +31,16 @@ export default function Users() {
   const [page, setPage] = useState(0);
 
   // Modals state
-  const [detailUser, setDetailUser] = useState(null);
   const [editUser, setEditUser] = useState(null);
   const [balanceUser, setBalanceUser] = useState(null);
+  const [balanceMode, setBalanceMode] = useState("add");
   const [delUser, setDelUser] = useState(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [withdrawConfirm, setWithdrawConfirm] = useState(null); // { user, request, status }
 
-  // Invite state
-  const [iEmail, setIEmail] = useState("");
-  const [iRole, setIRole] = useState("user");
-
-  // Realtime engine status
-  const [lastSync, setLastSync] = useState(new Date());
+  const openBalanceModal = (u, mode) => {
+    setBalanceMode(mode);
+    setBalanceUser(u);
+  };
 
   // Load & merge danh sách người dùng — Supabase là nguồn dữ liệu CHUẨN (chứa TẤT CẢ tài
   // khoản đã đăng ký/hoạt động trên BẤT KỲ thiết bị nào), local storage & Base44 chỉ bổ
@@ -85,6 +55,20 @@ export default function Users() {
         isSecretChatUser(u.email))
     );
   }, [currentUser?.role]);
+
+  // Tổng nạp/rút để hiện gọn trên thẻ — cộng dồn lịch sử giao dịch cục bộ của người dùng:
+  // nạp = các lần Admin cộng tiền, rút = đơn rút đã được duyệt (bỏ qua đơn đang chờ/từ chối).
+  const computeTxTotals = (userId) => {
+    const txs = getUserData(userId).txs || [];
+    let totalDeposit = 0;
+    let totalWithdraw = 0;
+    txs.forEach((t) => {
+      if (t.type === "ADMIN_DEPOSIT") totalDeposit += Number(t.amount) || 0;
+      else if (t.type === "ADMIN_WITHDRAW") totalWithdraw += Number(t.amount) || 0;
+      else if (t.type === "withdraw" && t.status === "completed") totalWithdraw += Number(t.amount) || 0;
+    });
+    return { totalDeposit, totalWithdraw };
+  };
 
   const loadUsers = useCallback(async () => {
     let bUsers = [];
@@ -160,8 +144,23 @@ export default function Users() {
       }
     });
 
-    setUsers(Array.from(mapByAccOrId.values()));
-    setLastSync(new Date());
+    // 4. Đơn rút tiền đang chờ duyệt — gắn thẳng vào từng người dùng tương ứng để hiện
+    // ngay trên mặt thẻ, admin không cần mở riêng tab Giao dịch mới thấy được.
+    let pendingList = [];
+    try {
+      pendingList = await listPendingWithdrawRequests();
+    } catch {
+      /* ignore */
+    }
+    const pendingByUserId = new Map(pendingList.map((r) => [r.userId, r]));
+
+    setUsers(
+      Array.from(mapByAccOrId.values()).map((u) => ({
+        ...u,
+        pendingWithdraw: pendingByUserId.get(u.id) || null,
+        ...computeTxTotals(u.id),
+      }))
+    );
   }, [currentUser?.role, isHiddenFromViewer]);
 
   useEffect(() => {
@@ -308,16 +307,21 @@ export default function Users() {
     }
   };
 
-  // Invite user handler
-  const handleInvite = async () => {
-    if (!iEmail) return toast({ title: "Vui lòng nhập Email", variant: "destructive" });
+  // Duyệt/Từ chối đơn rút tiền ngay trên thẻ — dùng chung cơ chế với trang Giao Dịch
+  const handleDecideWithdraw = async () => {
+    if (!withdrawConfirm) return;
+    const { user, request, status } = withdrawConfirm;
     try {
-      await base44.users.inviteUser(iEmail, iRole);
-      toast({ title: "Đã gửi lời mời", description: iEmail });
-      setInviteOpen(false);
-      setIEmail("");
+      await decideWithdrawRequest({ userId: user.id, requestId: request.id, amount: request.amount, status });
+      toast({
+        title: status === "approved" ? "Đã duyệt đơn rút tiền" : "Đã từ chối đơn rút tiền",
+        description: `${user.full_name || user.account} · $${request.amount.toLocaleString()} USD`,
+        variant: status === "approved" ? "success" : "destructive",
+      });
+      setWithdrawConfirm(null);
+      loadUsers();
     } catch (e) {
-      toast({ title: "Lỗi gửi lời mời", description: e.message, variant: "destructive" });
+      toast({ title: "Có lỗi xảy ra", description: e.message, variant: "destructive" });
     }
   };
 
@@ -337,27 +341,19 @@ export default function Users() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          {/* Realtime Active Indicator */}
-          <div className="flex items-center gap-2 bg-[#121633] border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-            </span>
-            Realtime Active
-            <span className="text-[10px] text-white/40 border-l border-emerald-500/20 pl-2">
-              {lastSync.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-            </span>
-          </div>
-
-          <Button
-            size="sm"
-            className="bg-gradient-to-r from-[#7033ff] to-[#4b00ff] text-white font-semibold hover:opacity-90 shadow-md"
-            onClick={() => setInviteOpen(true)}
-          >
-            <UserPlus className="w-4 h-4 mr-1.5" /> Mời Người Dùng
-          </Button>
-        </div>
+        {/* Trạng thái đồng bộ trực tuyến — bấm để làm mới ngay lập tức */}
+        <button
+          type="button"
+          onClick={loadUsers}
+          title="Dữ liệu tự đồng bộ theo thời gian thực — bấm để làm mới ngay"
+          className="flex items-center gap-2 bg-[#121633] border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm hover:bg-emerald-500/10 transition-colors"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+          </span>
+          Trực tuyến
+        </button>
       </div>
 
       {/* Search & Filters Bar */}
@@ -375,154 +371,46 @@ export default function Users() {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <select
-            className={`${inputCls} sm:w-52 bg-[#0c0f26]`}
-            value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value);
-              setPage(0);
-            }}
-          >
-            <option value="all" className="bg-[#161936]">Tất cả tài khoản</option>
-            <option value="active" className="bg-[#161936]">🟢 Đang hoạt động</option>
-            <option value="locked" className="bg-[#161936]">🔒 Đã bị khóa</option>
-            <option value="has_balance" className="bg-[#161936]">💵 Có số dư (&gt; 0)</option>
-          </select>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={loadUsers}
-            className="text-white/70 hover:bg-white/10 shrink-0"
-            title="Làm mới dữ liệu"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-        </div>
+        <select
+          className={`${inputCls} sm:w-52 bg-[#0c0f26]`}
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="all" className="bg-[#161936]">Tất cả tài khoản</option>
+          <option value="active" className="bg-[#161936]">🟢 Đang hoạt động</option>
+          <option value="locked" className="bg-[#161936]">🔒 Đã bị khóa</option>
+          <option value="has_balance" className="bg-[#161936]">💵 Có số dư (&gt; 0)</option>
+        </select>
       </div>
 
-      {/* Data Table */}
-      <Panel className="overflow-hidden border border-white/10 rounded-2xl">
-        <TableWrap>
-          <thead className="bg-white/[0.04] text-xs uppercase text-white/60 tracking-wider">
-            <tr>
-              <Th>UID / Tài Khoản</Th>
-              <Th>Người Dùng</Th>
-              <Th>Liên Hệ</Th>
-              <Th>Số Dư ($ USD)</Th>
-              <Th>Ngân Hàng Rút</Th>
-              <Th>Trạng Thái</Th>
-              <Th>Ngày Đăng Ký</Th>
-              <Th className="text-right">Thao Tác</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.length === 0 ? (
-              <Empty colSpan={8} />
-            ) : (
-              pageRows.map((u) => {
-                const bank = u.bankInfo;
-                return (
-                  <tr key={u.id || u.account} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors text-sm">
-                    {/* UID / Account */}
-                    <Td className="font-mono text-xs">
-                      <span className="bg-[#7033ff]/20 text-[#ebd39a] border border-[#7033ff]/40 px-2 py-0.5 rounded font-semibold">
-                        {u.account || u.id?.slice(0, 8)}
-                      </span>
-                    </Td>
+      {/* User Bank-Card Grid */}
+      <Panel className="p-4 sm:p-5 space-y-4">
+        {pageRows.length === 0 ? (
+          <div className="text-center text-white/40 text-sm py-14">Chưa có dữ liệu</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+            {pageRows.map((u) => (
+              <UserBankCard
+                key={u.id || u.account}
+                user={u}
+                onAdd={(usr) => openBalanceModal(usr, "add")}
+                onSub={(usr) => openBalanceModal(usr, "sub")}
+                onEdit={setEditUser}
+                onToggleLock={handleToggleLock}
+                onNotify={handleNotifyUser}
+                onDelete={setDelUser}
+                onApproveWithdraw={(usr, req) => setWithdrawConfirm({ user: usr, request: req, status: "approved" })}
+                onRejectWithdraw={(usr, req) => setWithdrawConfirm({ user: usr, request: req, status: "rejected" })}
+              />
+            ))}
+          </div>
+        )}
 
-                    {/* User info */}
-                    <Td>
-                      <div className="font-medium text-white flex items-center gap-1.5">
-                        {u.full_name || "—"}
-                        <Badge tone={u.role === "admin" ? "purple" : "neutral"}>
-                          {u.role || "user"}
-                        </Badge>
-                      </div>
-                    </Td>
-
-                    {/* Contact */}
-                    <Td className="text-xs">
-                      <p className="text-white/80">{u.email || "—"}</p>
-                      <p className="text-white/40">{u.phone || "—"}</p>
-                    </Td>
-
-                    {/* Balance */}
-                    <Td>
-                      <span className="font-bold text-emerald-400">
-                        ${(u.balance || 0).toLocaleString()}
-                      </span>
-                      <span className="text-white/40 text-[11px] ml-1">USD</span>
-                    </Td>
-
-                    {/* Bank Linked */}
-                    <Td className="text-xs">
-                      {bank?.bankName ? (
-                        <div className="text-emerald-300/90 font-medium flex items-center gap-1">
-                          <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>{bank.bankName}</span>
-                          <span className="text-white/40">(*{bank.accountNumber?.slice(-4)})</span>
-                        </div>
-                      ) : (
-                        <span className="text-white/30 italic">Chưa liên kết</span>
-                      )}
-                    </Td>
-
-                    {/* Status Badge */}
-                    <Td>
-                      <Badge tone={u.locked ? "red" : "green"}>
-                        {u.locked ? "🔒 Đã Khóa" : "🟢 Hoạt Động"}
-                      </Badge>
-                    </Td>
-
-                    {/* Created Date */}
-                    <Td className="text-white/50 text-xs">
-                      {u.created_date ? new Date(u.created_date).toLocaleDateString("vi-VN") : "—"}
-                    </Td>
-
-                    {/* Actions */}
-                    <Td>
-                      <div className="flex items-center justify-end gap-1">
-                        <IconBtn title="Xem chi tiết" onClick={() => setDetailUser(u)}>
-                          <Eye size={16} />
-                        </IconBtn>
-
-                        <IconBtn title="Chỉnh sửa thông tin" onClick={() => setEditUser(u)}>
-                          <Edit2 size={16} />
-                        </IconBtn>
-
-                        <IconBtn title="Điều chỉnh số dư" onClick={() => setBalanceUser(u)}>
-                          <Wallet size={16} className="text-emerald-400" />
-                        </IconBtn>
-
-                        <IconBtn
-                          title={u.locked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
-                          onClick={() => handleToggleLock(u)}
-                          danger={!u.locked}
-                          success={u.locked}
-                        >
-                          {u.locked ? <Unlock size={16} /> : <Lock size={16} />}
-                        </IconBtn>
-
-                        <IconBtn title="Gửi thông báo" onClick={() => handleNotifyUser(u)}>
-                          <Bell size={16} />
-                        </IconBtn>
-
-                        <IconBtn title="Xóa tài khoản" danger onClick={() => setDelUser(u)}>
-                          <Trash2 size={16} />
-                        </IconBtn>
-                      </div>
-                    </Td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </TableWrap>
-
-        {/* Table Footer / Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 text-xs text-white/50 bg-white/[0.02] border-t border-white/5">
+        {/* Footer / Pagination */}
+        <div className="flex items-center justify-between pt-3 border-t border-white/10 text-xs text-white/50">
           <span>
             Hiển thị {filteredUsers.length} tài khoản {q && "(Đã lọc)"}
           </span>
@@ -550,14 +438,7 @@ export default function Users() {
       </Panel>
 
       {/* MODALS */}
-      {/* 1. Detail User Modal */}
-      <DetailUserModal
-        open={!!detailUser}
-        onOpenChange={(v) => !v && setDetailUser(null)}
-        user={detailUser}
-      />
-
-      {/* 2. Edit User Modal */}
+      {/* 1. Edit User Modal */}
       <EditUserModal
         open={!!editUser}
         onOpenChange={(v) => !v && setEditUser(null)}
@@ -565,57 +446,17 @@ export default function Users() {
         onSaved={loadUsers}
       />
 
-      {/* 3. Balance Adjust Modal */}
+      {/* 2. Balance Adjust Modal */}
       <BalanceAdjustModal
         open={!!balanceUser}
         onOpenChange={(v) => !v && setBalanceUser(null)}
         user={balanceUser}
         onSaved={loadUsers}
         updateUserData={handleUpdateUserData}
+        initialMode={balanceMode}
       />
 
-      {/* 4. Invite Modal */}
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-        <DialogContent className="bg-[#161936] border-white/15 text-white max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-[#ebd39a]">
-              Mời Người Dùng Mới
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-xs text-white/60 mb-1 block">Email người dùng</label>
-              <input
-                className={inputCls}
-                value={iEmail}
-                onChange={(e) => setIEmail(e.target.value)}
-                placeholder="user@example.com"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-white/60 mb-1 block">Vai trò (Role)</label>
-              <select
-                className={inputCls}
-                value={iRole}
-                onChange={(e) => setIRole(e.target.value)}
-              >
-                <option value="user" className="bg-[#161936]">Người dùng (User)</option>
-                <option value="admin" className="bg-[#161936]">Quản trị viên (Admin)</option>
-              </select>
-            </div>
-          </div>
-          <DialogFooter className="flex gap-2 justify-end">
-            <Button variant="ghost" onClick={() => setInviteOpen(false)} className="text-white/70 hover:text-white">
-              Hủy
-            </Button>
-            <Button className="bg-gradient-to-r from-[#7033ff] to-[#4b00ff] text-white" onClick={handleInvite}>
-              Gửi Lời Mời
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 5. Confirm Delete Dialog */}
+      {/* 3. Confirm Delete Dialog */}
       <ConfirmDialog
         open={!!delUser}
         onOpenChange={(v) => !v && setDelUser(null)}
@@ -623,6 +464,17 @@ export default function Users() {
         desc={`Bạn có chắc chắn muốn xóa vĩnh viễn người dùng ${delUser?.account || delUser?.email}? Thao tác này không thể hoàn tác.`}
         confirmText="Xóa Ngay"
         onConfirm={handleDeleteUser}
+      />
+
+      {/* 4. Confirm Withdraw Decision Dialog */}
+      <ConfirmDialog
+        open={!!withdrawConfirm}
+        onOpenChange={(v) => !v && setWithdrawConfirm(null)}
+        title={withdrawConfirm?.status === "approved" ? "Duyệt đơn rút tiền" : "Từ chối đơn rút tiền"}
+        desc={`${withdrawConfirm?.user?.full_name || withdrawConfirm?.user?.account} · $${withdrawConfirm?.request?.amount?.toLocaleString()} USD${withdrawConfirm?.request?.bank?.bankName ? ` · ${withdrawConfirm.request.bank.bankName}` : ""}`}
+        confirmText={withdrawConfirm?.status === "approved" ? "Chấp nhận duyệt" : "Từ chối"}
+        tone={withdrawConfirm?.status === "approved" ? "primary" : "danger"}
+        onConfirm={handleDecideWithdraw}
       />
     </div>
   );
