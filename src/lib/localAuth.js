@@ -275,12 +275,15 @@ export const verifyPayPassword = (userId, pin) => {
   }
 };
 
-// Cập nhật mật khẩu rút tiền.
-export const updatePayPassword = (userId, newPin) => {
+// Cập nhật mật khẩu rút tiền — bắt buộc xác minh đúng PIN hiện tại trước khi cho đổi,
+// cùng chuẩn bảo mật với đổi mật khẩu đăng nhập (updatePassword), tránh tình trạng ai
+// đang có sẵn phiên đăng nhập cũng đổi được PIN rút tiền mà không cần biết PIN cũ.
+export const updatePayPassword = (userId, currentPin, newPin) => {
   try {
     const users = readUsers();
     const idx = users.findIndex((u) => u.id === userId);
-    if (idx === -1) return false;
+    if (idx === -1) return { ok: false, msg: "Không tìm thấy tài khoản" };
+    if (users[idx].payPassword !== currentPin) return { ok: false, msg: "Mật khẩu rút tiền hiện tại không đúng" };
     users[idx].payPassword = newPin;
     writeUsers(users);
 
@@ -289,9 +292,9 @@ export const updatePayPassword = (userId, newPin) => {
       spUpdateUser(users[idx].id, { payPassword: newPin }).catch(() => {});
     }
 
-    return true;
+    return { ok: true };
   } catch {
-    return false;
+    return { ok: false, msg: "Lỗi hệ thống" };
   }
 };
 

@@ -50,7 +50,7 @@ const detectCurrentDevice = () => {
 export default function SettingsModal({ open, onOpenChange, onToast }) {
   const { user } = useAuth();
   const [pw, setPw] = useState({ cur: "", new: "", confirm: "" });
-  const [pin, setPin] = useState("");
+  const [pin, setPin] = useState({ cur: "", new: "" });
   const [devices, setDevices] = useState([]);
 
   // Cập nhật danh sách thiết bị khi mở modal
@@ -77,13 +77,15 @@ export default function SettingsModal({ open, onOpenChange, onToast }) {
   };
 
   const submitPin = () => {
-    if (!/^\d{6}$/.test(pin)) return onToast({ title: "PIN rút tiền phải đúng 6 chữ số", variant: "destructive" });
+    if (!/^\d{6}$/.test(pin.cur)) return onToast({ title: "Vui lòng nhập đúng PIN hiện tại (6 chữ số)", variant: "destructive" });
+    if (!/^\d{6}$/.test(pin.new)) return onToast({ title: "PIN mới phải đúng 6 chữ số", variant: "destructive" });
+    if (pin.new === pin.cur) return onToast({ title: "PIN mới phải khác PIN hiện tại", variant: "destructive" });
 
-    const ok = updatePayPassword(user?.id, pin);
-    if (!ok) return onToast({ title: "Cập nhật PIN thất bại", variant: "destructive" });
+    const res = updatePayPassword(user?.id, pin.cur, pin.new);
+    if (!res.ok) return onToast({ title: res.msg || "Cập nhật PIN thất bại", variant: "destructive" });
 
     onToast({ title: "Đổi PIN rút tiền thành công", variant: "success" });
-    setPin("");
+    setPin({ cur: "", new: "" });
   };
 
   const revoke = (d) => {
@@ -141,21 +143,35 @@ export default function SettingsModal({ open, onOpenChange, onToast }) {
             </Button>
           </div>
 
-          {/* Đổi PIN rút tiền */}
+          {/* Đổi PIN rút tiền — bắt buộc nhập đúng PIN hiện tại (chính là PIN dùng khi
+              gửi yêu cầu rút tiền ở màn Rút Tiền) trước khi cho đặt PIN mới, để 2 màn
+              hình luôn khớp nhau và tránh ai đó chiếm phiên đăng nhập tự ý đổi PIN. */}
           <div className="bg-[#2a2040] rounded-xl p-3.5 space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-[#bd9c59]">
               <ShieldCheck className="w-4 h-4" /> Đổi mật khẩu rút tiền (PIN 6 số)
             </div>
-            <Input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="Nhập PIN mới (6 chữ số)"
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              className="bg-[#1e1832] border-[#3a2d52] focus:border-[#bd9c59] text-white text-center tracking-widest text-lg h-11"
-              style={{ fontSize: "20px", letterSpacing: "0.4em" }}
-            />
+            <div className="space-y-2">
+              <Input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="Mật khẩu rút tiền hiện tại"
+                value={pin.cur}
+                onChange={(e) => setPin({ ...pin, cur: e.target.value.replace(/\D/g, "") })}
+                className="bg-[#1e1832] border-[#3a2d52] focus:border-[#bd9c59] text-white text-center tracking-widest text-lg h-11"
+                style={{ fontSize: "20px", letterSpacing: "0.4em" }}
+              />
+              <Input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="Nhập PIN mới (6 chữ số)"
+                value={pin.new}
+                onChange={(e) => setPin({ ...pin, new: e.target.value.replace(/\D/g, "") })}
+                className="bg-[#1e1832] border-[#3a2d52] focus:border-[#bd9c59] text-white text-center tracking-widest text-lg h-11"
+                style={{ fontSize: "20px", letterSpacing: "0.4em" }}
+              />
+            </div>
             <Button
               onClick={submitPin}
               className="w-full bg-[#bd9c59] text-[#1e1832] hover:bg-[#cfb06a] font-semibold h-10 rounded-lg text-sm"
