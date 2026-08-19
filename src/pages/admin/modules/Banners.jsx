@@ -399,7 +399,7 @@ export default function Banners() {
 
       {/* Batch Upload & Drag-and-Drop Zone */}
       <Panel
-        className={`p-6 border-2 border-dashed transition-all cursor-pointer relative overflow-hidden ${
+        className={`p-4 sm:p-5 border-2 border-dashed transition-all cursor-pointer relative overflow-hidden ${
           isDragging
             ? "border-[#7033ff] bg-[#7033ff]/10 scale-[1.01]"
             : "border-white/20 hover:border-[#7033ff]/60 bg-white/[0.02]"
@@ -411,22 +411,22 @@ export default function Banners() {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
-        <div className="flex flex-col items-center justify-center text-center space-y-3">
-          <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-[#7033ff]/30 to-[#ffab40]/30 border border-white/20 text-white shadow-xl">
-            <FolderArchive className="w-8 h-8 text-[#ffab40]" />
+        <div className="flex flex-col sm:flex-row items-center justify-center text-center sm:text-left gap-3">
+          <div className="p-2.5 rounded-xl bg-gradient-to-tr from-[#7033ff]/30 to-[#ffab40]/30 border border-white/20 text-white shrink-0">
+            <FolderArchive className="w-5 h-5 text-[#ffab40]" />
           </div>
 
-          <div>
-            <h3 className="text-sm sm:text-base font-bold text-white">
-              Kéo thả file Ảnh, Video hoặc file ZIP vào đây để tự động tải lên
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-bold text-white">
+              Kéo thả file Ảnh, Video hoặc file ZIP vào đây
             </h3>
-            <p className="text-xs text-white/60 mt-1 max-w-lg">
-              Hỗ trợ file đơn lẻ (.png, .jpg, .webp, .mp4) hoặc file nén .ZIP chứa bộ ảnh/video banner. Hệ thống sẽ tự động giải nén và hiển thị ngay lập tức!
+            <p className="text-[11px] text-white/50 mt-0.5">
+              .png, .jpg, .webp, .mp4 hoặc .zip chứa nhiều file — tự động tải lên ngay
             </p>
           </div>
 
-          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#7033ff] hover:bg-[#5f23ee] text-white text-xs font-bold transition-all shadow-md">
-            <Upload className="w-4 h-4" /> Chọn File / File ZIP từ Máy
+          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#7033ff] hover:bg-[#5f23ee] text-white text-xs font-bold transition-all shadow-md shrink-0">
+            <Upload className="w-4 h-4" /> Chọn File
             <input
               type="file"
               multiple
@@ -452,66 +452,61 @@ export default function Banners() {
       </Panel>
 
       {/* Display Controls */}
-      <Panel className="p-4 sm:p-5 space-y-4">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#ffab40]" /> Cấu hình hiển thị Slider & Banner
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-1 border-t border-white/10">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-            <div>
-              <p className="text-xs font-semibold text-white">Trình chiếu Carousel</p>
-              <p className="text-[11px] text-white/50">Tự động chuyển slide khi có nhiều banner</p>
-            </div>
-            <Switch
-              checked={!!config.enableCarousel}
-              onCheckedChange={handleToggleCarousel}
-            />
+      <Panel className="p-4 sm:p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#ffab40]" /> Cấu hình hiển thị
+          </h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-white/60">Carousel</span>
+            <Switch checked={!!config.enableCarousel} onCheckedChange={handleToggleCarousel} />
           </div>
+        </div>
 
-          <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-            <label className="text-xs font-semibold text-white block">Thời gian chuyển slide</label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-white/10">
+          <div className="space-y-1">
+            <label className="text-[11px] text-white/50 block">Thời gian chuyển slide</label>
             <select
               className={inputCls}
               value={(config.autoplayInterval || 6000) / 1000}
               onChange={(e) => handleChangeInterval(e.target.value)}
             >
-              <option value="3" className="bg-[#0f1225]">3 giây (Nhanh)</option>
-              <option value="5" className="bg-[#0f1225]">5 giây (Tiêu chuẩn)</option>
+              <option value="3" className="bg-[#0f1225]">3 giây</option>
+              <option value="5" className="bg-[#0f1225]">5 giây</option>
               <option value="6" className="bg-[#0f1225]">6 giây (Khuyên dùng)</option>
               <option value="8" className="bg-[#0f1225]">8 giây</option>
               <option value="10" className="bg-[#0f1225]">10 giây</option>
             </select>
           </div>
 
-          <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-            <label className="text-xs font-semibold text-white block">Chiều cao Banner trên Mobile</label>
+          <div className="space-y-1">
+            <label className="text-[11px] text-white/50 block">Chiều cao trên Mobile</label>
             <select
               className={inputCls}
               value={config.bannerHeight || "180px"}
               onChange={(e) => handleChangeHeight(e.target.value)}
             >
               <option value="140px" className="bg-[#0f1225]">Nhỏ (140px)</option>
-              <option value="180px" className="bg-[#0f1225]">Vừa (180px - Khuyên dùng)</option>
+              <option value="180px" className="bg-[#0f1225]">Vừa (180px)</option>
               <option value="220px" className="bg-[#0f1225]">Lớn (220px)</option>
-              <option value="260px" className="bg-[#0f1225]">Siêu Lớn (260px)</option>
+              <option value="260px" className="bg-[#0f1225]">Siêu lớn (260px)</option>
             </select>
           </div>
 
-          <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-            <label className="text-xs font-semibold text-white block">Chế độ khớp khung hình (Fit)</label>
+          <div className="space-y-1">
+            <label className="text-[11px] text-white/50 block">Khớp khung hình</label>
             <select
               className={inputCls}
               value={config.objectFitGlobal || "cover"}
               onChange={(e) => handleChangeGlobalFit(e.target.value)}
             >
-              <option value="cover" className="bg-[#0f1225]">Cắt đẹp phủ kín (Cover)</option>
-              <option value="contain" className="bg-[#0f1225]">Hiển thị toàn bộ không cắt (Contain)</option>
+              <option value="cover" className="bg-[#0f1225]">Phủ kín (Cover)</option>
+              <option value="contain" className="bg-[#0f1225]">Toàn bộ (Contain)</option>
             </select>
           </div>
 
-          <div className="p-3 rounded-xl bg-white/5 border border-white/5 space-y-1">
-            <label className="text-xs font-semibold text-white block">Hiệu ứng chuyển slide</label>
+          <div className="space-y-1">
+            <label className="text-[11px] text-white/50 block">Hiệu ứng chuyển slide</label>
             <select
               className={inputCls}
               value={config.transitionEffect || "fade"}
@@ -529,25 +524,21 @@ export default function Banners() {
       {/* Preset Banner Quick Selection */}
       <Panel className="p-4 sm:p-5 space-y-3">
         <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-          <Copy className="w-4 h-4 text-[#ffab40]" /> Mẫu Banner Có Sẵn (Presets 1-Click)
+          <Copy className="w-4 h-4 text-[#ffab40]" /> Mẫu Banner Có Sẵn
         </h2>
-        <p className="text-xs text-white/60">Thêm nhanh các mẫu banner cao cấp chuẩn HD vào danh sách:</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
           {PRESET_BANNERS.map((preset, idx) => (
             <div
               key={idx}
-              className="p-3 rounded-xl bg-white/5 border border-white/10 hover:border-[#7033ff]/50 transition-all flex flex-col justify-between space-y-2 group"
+              className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-[#7033ff]/50 transition-all flex flex-col justify-between gap-2 group"
             >
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/10 text-white/90 flex items-center gap-1">
-                    {preset.type === "video" ? <Video className="w-3 h-3 text-[#ffab40]" /> : <ImageIcon className="w-3 h-3 text-emerald-400" />}
-                    {preset.type === "video" ? "Video MP4" : "Hình ảnh"}
-                  </span>
+                <div className="flex items-center justify-between mb-1">
+                  {preset.type === "video" ? <Video className="w-3.5 h-3.5 text-[#ffab40]" /> : <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />}
                   <Badge tone={preset.type === "video" ? "amber" : "purple"}>{preset.badge}</Badge>
                 </div>
-                <p className="text-xs font-bold text-white group-hover:text-[#ffab40] transition-colors">{preset.title}</p>
+                <p className="text-xs font-bold text-white group-hover:text-[#ffab40] transition-colors line-clamp-1">{preset.title}</p>
                 <p className="text-[11px] text-white/50 line-clamp-1">{preset.subtitle}</p>
               </div>
 
@@ -555,9 +546,9 @@ export default function Banners() {
                 size="sm"
                 variant="secondary"
                 onClick={() => handleAddPreset(preset)}
-                className="w-full h-8 text-xs bg-white/10 hover:bg-[#7033ff] hover:text-white transition-colors mt-2"
+                className="w-full h-7 text-[11px] bg-white/10 hover:bg-[#7033ff] hover:text-white transition-colors"
               >
-                <Plus className="w-3.5 h-3.5 mr-1" /> Thêm Mẫu Này
+                <Plus className="w-3.5 h-3.5 mr-1" /> Thêm
               </Button>
             </div>
           ))}
@@ -566,18 +557,9 @@ export default function Banners() {
 
       {/* Banner List Table */}
       <Panel className="p-4 sm:p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Eye className="w-4 h-4 text-[#7033ff]" /> Danh sách Banner Đang Hoạt Động ({config.banners.length})
-          </h2>
-          <Button
-            size="sm"
-            onClick={handleOpenAdd}
-            className="bg-[#7033ff] hover:bg-[#5b22e0] text-white text-xs h-8"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1" /> Thêm Banner
-          </Button>
-        </div>
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+          <Eye className="w-4 h-4 text-[#7033ff]" /> Danh sách Banner ({config.banners.length})
+        </h2>
 
         <div className="space-y-3">
           {config.banners.map((item, index) => (
@@ -652,8 +634,7 @@ export default function Banners() {
                 </div>
 
                 {/* Toggle Active */}
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/10">
-                  <span className="text-[11px] text-white/60">{item.active ? "Hiện" : "Ẩn"}</span>
+                <div className="flex items-center px-2 py-1.5 bg-white/5 rounded-lg border border-white/10" title={item.active ? "Đang hiển thị" : "Đang ẩn"}>
                   <Switch
                     checked={!!item.active}
                     onCheckedChange={() => handleToggleActive(item.id)}
@@ -665,9 +646,10 @@ export default function Banners() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleOpenEdit(item)}
-                  className="border-white/10 hover:bg-white/10 text-white text-xs h-8"
+                  title="Sửa banner"
+                  className="border-white/10 hover:bg-white/10 text-white text-xs h-8 w-8 p-0"
                 >
-                  <Edit className="w-3.5 h-3.5 mr-1" /> Sửa
+                  <Edit className="w-3.5 h-3.5" />
                 </Button>
 
                 {/* Delete */}
@@ -675,7 +657,8 @@ export default function Banners() {
                   size="sm"
                   variant="destructive"
                   onClick={() => handleDeleteBanner(item.id)}
-                  className="bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs h-8 border border-red-500/30"
+                  title="Xoá banner"
+                  className="bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs h-8 w-8 p-0 border border-red-500/30"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

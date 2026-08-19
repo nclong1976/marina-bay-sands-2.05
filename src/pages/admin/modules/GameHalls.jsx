@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { useToast } from "@/components/ui/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2, Upload, Settings, History, Clock, ArrowUp, ArrowDown, Zap, Power, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Settings, History, Clock, ArrowUp, ArrowDown, Zap, Power, CalendarClock, Search, Info } from "lucide-react";
 import { Panel, TableWrap, Th, Td, inputCls, ConfirmDialog } from "../ui";
 import { GAMES } from "@/components/home/homeData";
-import { getGameConfigs, updateGameConfig, formatMMSS, subscribeGameStore, getCustomGames, saveCustomGames, setGameBoostMode, setGameBoostSchedule } from "@/lib/gameStore";
+import { getGameConfigs, updateGameConfig, formatMMSS, subscribeGameStore, getCustomGames, saveCustomGames, setGameBoostMode, getEffectiveGameOdds } from "@/lib/gameStore";
 import GameConfigModal from "@/components/admin/GameConfigModal";
 import AuditLogModal from "@/components/admin/AuditLogModal";
 
@@ -22,11 +22,27 @@ export default function GameHalls() {
   const [gameConfigs, setGameConfigs] = useState(() => getGameConfigs());
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
-  const [scheduleTimeInput, setScheduleTimeInput] = useState({});
 
-  // Modal states for Config and Audit Log
+  // Modal states for Config and Audit Log — configInitialTab điều hướng thẳng tới đúng
+  // tab (Sửa tỷ lệ hoặc Hẹn giờ nhiều khung) tuỳ nút admin bấm từ bảng.
   const [configGame, setConfigGame] = useState(null);
+  const [configInitialTab, setConfigInitialTab] = useState("general");
   const [openAuditLog, setOpenAuditLog] = useState(false);
+
+  const openConfig = (g, cfg, tab = "general") => {
+    setConfigGame({ ...g, ...cfg });
+    setConfigInitialTab(tab);
+  };
+
+  // Tìm kiếm & lọc — giúp admin mới nhanh chóng tìm đúng sảnh giữa danh sách dài
+  const [q, setQ] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  // Xác nhận trước khi thao tác ảnh hưởng trực tiếp tới người chơi đang cược thật —
+  // tránh admin mới bấm nhầm làm tắt sảnh hoặc đổi tỷ lệ thưởng ngoài ý muốn.
+  const [boostConfirm, setBoostConfirm] = useState(null); // { gameKey, targetMode, title }
+  const [statusConfirm, setStatusConfirm] = useState(null); // { gameKey, newStatus, title }
 
   const load = () => {
     setGameList(getCustomGames(GAMES));
@@ -78,27 +94,6 @@ export default function GameHalls() {
     }
   };
 
-  // Handle Save Schedule Timer for Auto Bật
-  const handleSaveSchedule = (gameId, title) => {
-    const timeVal = scheduleTimeInput[gameId];
-    if (!timeVal) {
-      return toast({ title: "Vui lòng chọn giờ hẹn (HH:mm)", variant: "destructive" });
-    }
-    setGameBoostSchedule(gameId, timeVal, { adminId: "Admin_Principal", ip: "192.168.1.10" });
-    setGameConfigs(getGameConfigs());
-    toast({
-      title: `⏳ Đã hẹn giờ Bật 2.05 lúc ${timeVal}`,
-      description: `Đến ${timeVal}, sảnh "${title}" sẽ tự động BẬT tỷ lệ 2,05 và chạy nhanh ván cược cũ để chuyển giao chuẩn xác.`,
-    });
-  };
-
-  const handleClearSchedule = (gameId, title) => {
-    setGameBoostSchedule(gameId, null, { adminId: "Admin_Principal", ip: "192.168.1.10" });
-    setScheduleTimeInput((prev) => ({ ...prev, [gameId]: "" }));
-    setGameConfigs(getGameConfigs());
-    toast({ title: `Đã hủy hẹn giờ cho sảnh ${title}` });
-  };
-
   const onUpload = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
     try {
@@ -145,6 +140,60 @@ export default function GameHalls() {
       variant: newStatus === "active" ? "success" : "default",
     });
   };
+
+  // Chuyển trạng thái sang Active thì áp dụng ngay (an toàn) — chuyển sang Bảo trì/Tắt
+  // thì hỏi xác nhận trước vì sẽ ẩn sảnh khỏi người chơi ngay lập tức.
+  const requestStatusChange = (gameKey, newStatus, title) => {
+    if (newStatus === "active") {
+      handleStatusChange(gameKey, newStatus);
+    } else {
+      setStatusConfirm({ gameKey, newStatus, title });
+    }
+  };
+
+  const confirmStatusChange = () => {
+    if (!statusConfirm) return;
+    handleStatusChange(statusConfirm.gameKey, statusConfirm.newStatus);
+    setStatusConfirm(null);
+  };
+
+  const confirmBoostToggle = () => {
+    if (!boostConfirm) return;
+    handleToggleBoost(boostConfirm.gameKey, boostConfirm.targetMode, boostConfirm.title);
+    setBoostConfirm(null);
+  };
+
+  // Tìm kiếm & lọc theo tên/mã, danh mục, trạng thái — không đổi thứ tự thật của
+  // gameList nên các nút di chuyển lên/xuống vẫn hoạt động đúng khi đang lọc.
+  const filteredGameList = useMemo(() => {
+    return gameList.filter((g) => {
+      const gameKey = g.gameId || g.id;
+      const cfg = gameConfigs[gameKey];
+      const status = cfg?.status || g.status || "active";
+
+      if (categoryFilter !== "all" && g.category !== categoryFilter) return false;
+      if (statusFilter !== "all" && status !== statusFilter) return false;
+
+      if (q.trim()) {
+        const query = q.toLowerCase().trim();
+        const titleMatch = (g.title || "").toLowerCase().includes(query);
+        const idMatch = (gameKey || "").toLowerCase().includes(query);
+        if (!titleMatch && !idMatch) return false;
+      }
+      return true;
+    });
+  }, [gameList, gameConfigs, q, categoryFilter, statusFilter]);
+
+  // Thống kê nhanh theo trạng thái — giúp admin mới nắm tổng quan hệ thống trong 1 giây
+  const statusCounts = useMemo(() => {
+    const counts = { active: 0, maintenance: 0, disabled: 0 };
+    gameList.forEach((g) => {
+      const gameKey = g.gameId || g.id;
+      const status = gameConfigs[gameKey]?.status || g.status || "active";
+      if (counts[status] !== undefined) counts[status] += 1;
+    });
+    return counts;
+  }, [gameList, gameConfigs]);
 
   const move = (idx, dir) => {
     const targetIdx = idx + dir;
@@ -199,6 +248,72 @@ export default function GameHalls() {
         </div>
       </div>
 
+      {/* Chú thích ngắn cho admin mới: giải thích khái niệm 3 trạng thái & chế độ thưởng 2.05 */}
+      <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-[#7033ff]/10 border border-[#7033ff]/20 text-xs text-white/70">
+        <Info className="w-4 h-4 text-[#bd9c59] shrink-0 mt-0.5" />
+        <p>
+          <strong className="text-white/90">🟢 Active</strong> = sảnh hiển thị bình thường cho người chơi ·{" "}
+          <strong className="text-white/90">🟡 Bảo trì</strong> / <strong className="text-white/90">🔴 Tắt</strong> = ẩn sảnh khỏi người chơi ngay lập tức ·{" "}
+          Bấm <strong className="text-white/90">Sửa tỷ lệ</strong> để đổi tỷ lệ trả thưởng thật ngay lập tức, hoặc <strong className="text-white/90">Hẹn giờ</strong> để tự động đổi tỷ lệ theo nhiều khung giờ trong ngày.
+        </p>
+      </div>
+
+      {/* Thống kê nhanh theo trạng thái */}
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+          <span className="text-xs text-white/70">Đang hoạt động</span>
+          <span className="ml-auto text-base font-bold text-emerald-300">{statusCounts.active}</span>
+        </div>
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
+          <span className="text-xs text-white/70">Đang bảo trì</span>
+          <span className="ml-auto text-base font-bold text-amber-300">{statusCounts.maintenance}</span>
+        </div>
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-500/10 border border-red-500/25">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
+          <span className="text-xs text-white/70">Đã tắt</span>
+          <span className="ml-auto text-base font-bold text-red-300">{statusCounts.disabled}</span>
+        </div>
+      </div>
+
+      {/* Tìm kiếm & lọc — dễ tìm đúng sảnh khi danh sách dài */}
+      <div className="flex flex-col sm:flex-row gap-2.5 items-center justify-between bg-[#121633] p-3 rounded-2xl border border-white/10">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+          <input
+            className={`${inputCls} pl-10 bg-[#0c0f26]`}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Tìm theo tên sảnh hoặc mã Game ID..."
+          />
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <select
+            className={`${inputCls} sm:w-44 bg-[#0c0f26]`}
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+          >
+            <option value="all" className="bg-[#12142d]">Tất cả danh mục</option>
+            <option value="lucky28" className="bg-[#12142d]">Lucky28</option>
+            <option value="xoso" className="bg-[#12142d]">Xổ Số</option>
+            <option value="pk10" className="bg-[#12142d]">PK10</option>
+            <option value="slot" className="bg-[#12142d]">Slot</option>
+            <option value="casino" className="bg-[#12142d]">Casino</option>
+          </select>
+          <select
+            className={`${inputCls} sm:w-44 bg-[#0c0f26]`}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="all" className="bg-[#12142d]">Tất cả trạng thái</option>
+            <option value="active" className="bg-[#12142d]">🟢 Hoạt động</option>
+            <option value="maintenance" className="bg-[#12142d]">🟡 Bảo trì</option>
+            <option value="disabled" className="bg-[#12142d]">🔴 Đã tắt</option>
+          </select>
+        </div>
+      </div>
+
       {/* Main Table: Game Status, Countdown Timers, Payout Odds & Actions */}
       <Panel className="overflow-hidden">
         <TableWrap>
@@ -209,13 +324,20 @@ export default function GameHalls() {
               <Th>Danh mục</Th>
               <Th>Trạng thái (3-State)</Th>
               <Th>Thời gian cược</Th>
-              <Th>Cửa Tài/Xỉu (1:x)</Th>
-              <Th>Chế Độ Thưởng 2.05 (Bật/Tắt & Hẹn Giờ)</Th>
+              <Th>Tỷ lệ trả thưởng (Live)</Th>
+              <Th>Khuyến Mãi Nhanh &amp; Hẹn Giờ</Th>
               <Th className="text-right">Hành động</Th>
             </tr>
           </thead>
           <tbody>
-            {gameList.map((g, i) => {
+            {filteredGameList.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-3 py-10 text-center text-white/40 text-sm">
+                  Không tìm thấy sảnh/trò chơi nào khớp bộ lọc
+                </td>
+              </tr>
+            ) : filteredGameList.map((g) => {
+              const i = gameList.findIndex((x) => x.id === g.id);
               const gameKey = g.gameId || g.id;
               const cfg = gameConfigs[gameKey] || {
                 gameId: gameKey,
@@ -226,6 +348,11 @@ export default function GameHalls() {
               const statusInfo = STATUS_BADGES[cfg.status || g.status] || STATUS_BADGES.active;
               const currentTaiXiuOdds = cfg.odds?.tai_xiu ?? 1.98;
               const isBoostActive = cfg.boostMode === "ON" || Number(currentTaiXiuOdds) >= 2.0;
+
+              // Tỷ lệ THẬT đang áp dụng cho người chơi ngay lúc này (gồm cả khung giờ
+              // khuyến mãi đang chạy, nếu có) — không chỉ tỷ lệ mặc định đã lưu.
+              const effective = getEffectiveGameOdds(gameKey);
+              const scheduleCount = (cfg.oddsSchedules || []).length;
 
               return (
                 <tr key={g.id} className="border-t border-white/5 hover:bg-white/[0.02]">
@@ -260,7 +387,7 @@ export default function GameHalls() {
                     {/* 3-State Status Selector */}
                     <select
                       value={cfg.status || g.status || "active"}
-                      onChange={(e) => handleStatusChange(gameKey, e.target.value)}
+                      onChange={(e) => requestStatusChange(gameKey, e.target.value, g.title)}
                       className={`text-xs font-semibold px-2.5 py-1 rounded-lg outline-none border cursor-pointer ${statusInfo.cls}`}
                     >
                       <option value="active" className="bg-[#12142d] text-emerald-400">🟢 Active (Hoạt động)</option>
@@ -278,84 +405,69 @@ export default function GameHalls() {
                     <div className="text-xs font-mono space-y-0.5">
                       <p>
                         Tài/Xỉu:{" "}
-                        <span className={isBoostActive ? "text-amber-300 font-extrabold text-sm" : "text-[#bd9c59] font-bold"}>
-                          1:{currentTaiXiuOdds}
+                        <span className={effective.isBoosted ? "text-amber-300 font-extrabold text-sm" : "text-[#bd9c59] font-bold"}>
+                          1:{effective.odds.tai_xiu}
                         </span>
                       </p>
-                      <p className="text-[10px] text-white/50">Đơn/Đôi: 1:{cfg.odds?.chan_le ?? 1.98}</p>
+                      <p className="text-[10px] text-white/50">Đơn/Đôi: 1:{effective.odds.chan_le}</p>
+                      {effective.isBoosted && (
+                        <p className="text-[10px] text-amber-400 font-sans font-semibold flex items-center gap-1">
+                          <Zap className="w-3 h-3" /> {effective.activeRule?.badgeText || effective.activeRule?.name || "Đang khuyến mãi"}
+                        </p>
+                      )}
                     </div>
                   </Td>
                   <Td>
-                    {/* Bật / Tắt (2.05 Odds Toggle) and Scheduling Controls */}
-                    <div className="space-y-1.5 min-w-[210px] py-1">
+                    {/* Bật/Tắt nhanh 1 chạm + lối vào Hẹn giờ nhiều khung (Scheduler) */}
+                    <div className="space-y-1.5 min-w-[190px] py-1">
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => handleToggleBoost(gameKey, "ON", g.title)}
+                          onClick={() => setBoostConfirm({ gameKey, targetMode: "ON", title: g.title })}
                           className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 active:scale-95 ${
                             isBoostActive
                               ? "bg-gradient-to-r from-amber-400 to-emerald-400 text-slate-950 shadow-[0_0_12px_rgba(255,215,0,0.5)] ring-1 ring-amber-300"
                               : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                           }`}
-                          title="Bật tỷ lệ cược 2,05 và chạy nhanh ván cược hiện tại"
+                          title="Bật ngay tỷ lệ 2,05 và chạy nhanh ván cược hiện tại"
                         >
-                          <Zap className="w-3.5 h-3.5" /> BẬT (2.05)
+                          <Zap className="w-3.5 h-3.5" /> BẬT
                         </button>
 
                         <button
-                          onClick={() => handleToggleBoost(gameKey, "OFF", g.title)}
+                          onClick={() => setBoostConfirm({ gameKey, targetMode: "OFF", title: g.title })}
                           className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 active:scale-95 ${
                             !isBoostActive
                               ? "bg-slate-700 text-white/90 border border-white/20 font-bold"
                               : "bg-white/5 hover:bg-red-500/20 text-red-400 border border-red-500/30"
                           }`}
-                          title="Tắt tỷ lệ 2,05, trở về mặc định 1,98"
+                          title="Tắt ngay, trở về mặc định 1,98"
                         >
-                          <Power className="w-3.5 h-3.5" /> TẮT (1.98)
+                          <Power className="w-3.5 h-3.5" /> TẮT
                         </button>
                       </div>
 
-                      {/* Schedule Timer Input */}
-                      <div className="flex items-center gap-1 text-[11px]">
-                        <input
-                          type="time"
-                          value={scheduleTimeInput[gameKey] ?? cfg.scheduledBoostTime ?? ""}
-                          onChange={(e) => setScheduleTimeInput((prev) => ({ ...prev, [gameKey]: e.target.value }))}
-                          className="bg-black/50 border border-white/15 rounded px-1.5 py-0.5 text-white font-mono text-xs w-[85px] outline-none focus:border-amber-400"
-                        />
-                        <button
-                          onClick={() => handleSaveSchedule(gameKey, g.title)}
-                          className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-semibold border border-amber-500/30 flex items-center gap-0.5 active:scale-95 transition-transform"
-                        >
-                          <CalendarClock className="w-3 h-3" /> Hẹn Giờ
-                        </button>
-                        {cfg.scheduledBoostTime && (
-                          <button
-                            onClick={() => handleClearSchedule(gameKey, g.title)}
-                            className="text-red-400 hover:text-red-300 text-[10px] font-bold px-1"
-                            title="Hủy hẹn giờ"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        onClick={() => openConfig(g, cfg, "scheduler")}
+                        className="w-full px-2 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <CalendarClock className="w-3.5 h-3.5" />
+                        Hẹn giờ nhiều khung {scheduleCount > 0 && `(${scheduleCount})`}
+                      </button>
 
                       {/* Status indicator */}
                       <div className="text-[11px] font-mono">
-                        {isBoostActive ? (
+                        {effective.isBoosted ? (
                           <span className="text-amber-400 font-black flex items-center gap-1">
                             <span className="relative flex h-2 w-2">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                             </span>
-                            ⚡ ĐANG BẬT 2,05
+                            ⏰ Đang trong khung giờ
                           </span>
-                        ) : cfg.scheduledBoostTime ? (
-                          <span className="text-cyan-300 font-semibold flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-cyan-400 animate-spin" style={{ animationDuration: '4s' }} />
-                            Hẹn Bật lúc: {cfg.scheduledBoostTime}
-                          </span>
+                        ) : isBoostActive ? (
+                          <span className="text-amber-300 font-semibold">⚡ Đã bật thủ công</span>
                         ) : (
-                          <span className="text-white/40">🔒 Tỉ lệ 1,98 (Mặc định)</span>
+                          <span className="text-white/40">🔒 Tỷ lệ mặc định</span>
                         )}
                       </div>
                     </div>
@@ -365,11 +477,11 @@ export default function GameHalls() {
                       <Button
                         size="xs"
                         variant="outline"
-                        onClick={() => setConfigGame({ ...g, ...cfg })}
+                        onClick={() => openConfig(g, cfg, "general")}
                         className="bg-[#bd9c59]/10 text-[#bd9c59] border-[#bd9c59]/30 hover:bg-[#bd9c59]/20 text-xs px-2 py-1 flex items-center gap-1"
-                        title="Cấu hình Đếm ngược & Payout Odds"
+                        title="Sửa tỷ lệ trả thưởng & thời gian ván cược"
                       >
-                        <Settings className="w-3.5 h-3.5" /> Cấu hình
+                        <Settings className="w-3.5 h-3.5" /> Sửa tỷ lệ
                       </Button>
                       <button className="p-1.5 rounded-lg hover:bg-white/10 text-white/70" onClick={() => openEdit(g)} title="Sửa thông tin">
                         <Pencil size={15} />
@@ -460,11 +572,37 @@ export default function GameHalls() {
 
       <ConfirmDialog open={!!del} onOpenChange={(v) => !v && setDel(null)} title="Xoá trò chơi / sảnh" desc={`Xoá "${del?.title}" khỏi danh sách sảnh chơi?`} confirmText="Xoá" onConfirm={remove} />
 
+      {/* Xác nhận đổi trạng thái sang Bảo trì / Tắt — ẩn sảnh khỏi người chơi ngay lập tức */}
+      <ConfirmDialog
+        open={!!statusConfirm}
+        onOpenChange={(v) => !v && setStatusConfirm(null)}
+        title={statusConfirm?.newStatus === "disabled" ? "Tắt hoàn toàn sảnh chơi" : "Chuyển sang Bảo trì"}
+        desc={`Sảnh "${statusConfirm?.title}" sẽ bị ẩn khỏi người chơi ngay lập tức. Bạn có chắc chắn không?`}
+        confirmText="Xác nhận"
+        onConfirm={confirmStatusChange}
+      />
+
+      {/* Xác nhận Bật/Tắt chế độ thưởng 2.05 — thay đổi tỷ lệ trả thưởng thật ngay lập tức */}
+      <ConfirmDialog
+        open={!!boostConfirm}
+        onOpenChange={(v) => !v && setBoostConfirm(null)}
+        title={boostConfirm?.targetMode === "ON" ? "Bật chế độ thưởng 2.05" : "Tắt chế độ thưởng 2.05"}
+        desc={
+          boostConfirm?.targetMode === "ON"
+            ? `Tăng tỷ lệ trả thưởng Tài/Xỉu của "${boostConfirm?.title}" lên 2,05 ngay lập tức?`
+            : `Đưa tỷ lệ trả thưởng của "${boostConfirm?.title}" về mặc định 1,98?`
+        }
+        confirmText="Xác nhận"
+        tone={boostConfirm?.targetMode === "ON" ? "primary" : "danger"}
+        onConfirm={confirmBoostToggle}
+      />
+
       {/* Game Config & Diff Confirmation Modal */}
       <GameConfigModal
         open={!!configGame}
         onOpenChange={(v) => !v && setConfigGame(null)}
         game={configGame}
+        initialTab={configInitialTab}
         onSaved={() => load()}
       />
 
