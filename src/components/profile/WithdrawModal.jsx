@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,25 +29,45 @@ export default function WithdrawModal({ open, onOpenChange, balance, minTurnover
   const [amount, setAmount] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [pinInvalid, setPinInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const pinRef = useRef(null);
 
   const bankAccounts = linked.filter((a) => a.type === "bank");
   const selected = bankAccounts.find((a) => a.id === bankId) || null;
   const numAmount = Number(amount) || 0;
   const canSubmit = selected && numAmount > 0 && numAmount <= balance && pin.length === 6 && turnover >= minTurnover;
 
+  const handlePinChange = (val) => {
+    setPin(val.replace(/\D/g, ""));
+    // Xoá phản hồi lỗi cũ ngay khi người dùng sửa lại — tránh thông báo "PIN sai" bị
+    // treo trên màn hình trong khi họ đang gõ lại mã mới.
+    setError("");
+    setPinInvalid(false);
+  };
+
   const handleSubmit = () => {
     setError("");
+    setPinInvalid(false);
     if (!selected) return setError("Vui lòng chọn tài khoản ngân hàng");
     if (numAmount <= 0) return setError("Số tiền phải lớn hơn 0");
     if (numAmount > balance) return setError("Số dư không đủ");
     if (turnover < minTurnover) return setError(`Chưa đủ số vòng cược tối thiểu (${minTurnover})`);
-    if (pin.length !== 6) return setError("Mật khẩu rút tiền phải đủ 6 số");
+    if (pin.length !== 6) {
+      setPinInvalid(true);
+      pinRef.current?.focus();
+      return setError("Mật khẩu rút tiền phải đủ 6 số");
+    }
 
     // Xác minh PIN
     const pinOk = verifyPayPassword(user?.id, pin);
-    if (!pinOk) return setError("Mật khẩu rút tiền không đúng");
+    if (!pinOk) {
+      setPinInvalid(true);
+      setPin("");
+      pinRef.current?.focus();
+      return setError("Mật khẩu rút tiền không đúng, vui lòng nhập lại");
+    }
 
     setSubmitting(true);
     // Tạo đơn rút tiền
@@ -201,27 +221,40 @@ export default function WithdrawModal({ open, onOpenChange, balance, minTurnover
                   <div>
                     <Label className="text-xs text-white/70 mb-2 block">Mật khẩu rút tiền (6 số)</Label>
                     <Input
+                      ref={pinRef}
                       type="password"
                       inputMode="numeric"
                       maxLength={6}
                       value={pin}
-                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                      onChange={(e) => handlePinChange(e.target.value)}
                       placeholder="••••••"
-                      className="bg-[#2a2040] border-[#3a2d52] focus:border-[#bd9c59] text-white h-11 tracking-widest text-center text-xl"
+                      className={`bg-[#2a2040] text-white h-11 tracking-widest text-center text-xl transition-colors ${
+                        pinInvalid
+                          ? "border-red-500 focus:border-red-500 ring-1 ring-red-500/50"
+                          : pin.length === 6
+                          ? "border-emerald-500/60 focus:border-emerald-500"
+                          : "border-[#3a2d52] focus:border-[#bd9c59]"
+                      }`}
                       style={{ fontSize: "24px", letterSpacing: "0.5em" }}
                     />
                   </div>
 
                   {/* Error */}
                   {error && (
-                    <p className="text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg">{error}</p>
+                    <p className="text-red-400 text-xs bg-red-500/10 px-3 py-2 rounded-lg flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {error}
+                    </p>
                   )}
 
-                  {/* Submit */}
+                  {/* Submit — luôn bấm được (trừ lúc đang gửi) để mọi lý do chưa đủ điều
+                      kiện (vòng cược, số dư, PIN...) đều hiện rõ ràng ngay khi bấm, thay
+                      vì nút bị mờ đi một cách khó hiểu không rõ lý do. */}
                   <Button
                     onClick={handleSubmit}
-                    disabled={!canSubmit || submitting}
-                    className="w-full h-12 bg-gradient-to-r from-[#bd9c59] to-[#d4b870] text-[#1e1832] font-bold rounded-xl hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                    disabled={submitting}
+                    className={`w-full h-12 bg-gradient-to-r from-[#bd9c59] to-[#d4b870] text-[#1e1832] font-bold rounded-xl hover:brightness-110 active:scale-[0.98] transition-all disabled:cursor-not-allowed flex items-center gap-2 ${
+                      !canSubmit && !submitting ? "opacity-70" : ""
+                    }`}
                   >
                     <Banknote className="w-4 h-4" />
                     {submitting ? "Đang gửi..." : "Gửi yêu cầu rút tiền"}
