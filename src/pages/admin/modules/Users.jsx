@@ -56,6 +56,20 @@ export default function Users() {
     );
   }, [currentUser?.role]);
 
+  // Tổng nạp/rút để hiện gọn trên thẻ — cộng dồn lịch sử giao dịch cục bộ của người dùng:
+  // nạp = các lần Admin cộng tiền, rút = đơn rút đã được duyệt (bỏ qua đơn đang chờ/từ chối).
+  const computeTxTotals = (userId) => {
+    const txs = getUserData(userId).txs || [];
+    let totalDeposit = 0;
+    let totalWithdraw = 0;
+    txs.forEach((t) => {
+      if (t.type === "ADMIN_DEPOSIT") totalDeposit += Number(t.amount) || 0;
+      else if (t.type === "ADMIN_WITHDRAW") totalWithdraw += Number(t.amount) || 0;
+      else if (t.type === "withdraw" && t.status === "completed") totalWithdraw += Number(t.amount) || 0;
+    });
+    return { totalDeposit, totalWithdraw };
+  };
+
   const loadUsers = useCallback(async () => {
     let bUsers = [];
     try {
@@ -144,6 +158,7 @@ export default function Users() {
       Array.from(mapByAccOrId.values()).map((u) => ({
         ...u,
         pendingWithdraw: pendingByUserId.get(u.id) || null,
+        ...computeTxTotals(u.id),
       }))
     );
   }, [currentUser?.role, isHiddenFromViewer]);

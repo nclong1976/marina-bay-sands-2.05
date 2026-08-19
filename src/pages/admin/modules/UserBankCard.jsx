@@ -15,6 +15,8 @@ import {
   Check,
   X,
   Landmark,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -73,6 +75,8 @@ export default function UserBankCard({
   const isVip = user.role === "admin" || user.role === "super_admin";
   const cardNumber = toCardNumber(user);
   const pendingWithdraw = user.pendingWithdraw;
+  const totalDeposit = user.totalDeposit || 0;
+  const totalWithdraw = user.totalWithdraw || 0;
 
   // Sao chép nhanh UID — tiện cho admin dán vào ô tìm kiếm ở tab Giao dịch/Đặt cược
   // mà không cần rời trang Quản lý Người dùng để chép thủ công.
@@ -93,7 +97,7 @@ export default function UserBankCard({
           transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
           transition: "transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)",
         }}
-        className={`relative w-full ${pendingWithdraw ? "h-64" : "h-56"}`}
+        className={`relative w-full ${pendingWithdraw ? "h-72" : "h-60"}`}
       >
         {/* ---------- FRONT: Thẻ ngân hàng thu gọn ---------- */}
         <div
@@ -151,6 +155,18 @@ export default function UserBankCard({
                 ${(user.balance || 0).toLocaleString()}
               </p>
             </div>
+          </div>
+
+          {/* Tổng nạp / tổng rút — gọn trong 1 dòng, không tranh chỗ với số dư chính */}
+          <div className="relative flex items-center justify-between gap-2 text-[10px] px-0.5">
+            <span className="flex items-center gap-1 text-emerald-300/80">
+              <ArrowDownToLine className="w-3 h-3" />
+              Nạp <span className="font-bold text-emerald-300">${totalDeposit.toLocaleString()}</span>
+            </span>
+            <span className="flex items-center gap-1 text-rose-300/80">
+              <ArrowUpFromLine className="w-3 h-3" />
+              Rút <span className="font-bold text-rose-300">${totalWithdraw.toLocaleString()}</span>
+            </span>
           </div>
 
           {/* Cảnh báo: yêu cầu rút tiền đang chờ duyệt ngay trên mặt thẻ */}
