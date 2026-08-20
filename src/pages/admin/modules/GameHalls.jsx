@@ -107,6 +107,19 @@ export default function GameHalls() {
 
   const save = () => {
     if (!edit.title) return toast({ title: "Vui lòng nhập tên trò chơi/sảnh", variant: "destructive" });
+
+    // Chặn tạo/đổi thành mã Game ID đã dùng ở dòng khác — mỗi trò chơi thật (1 ván chơi
+    // trực tiếp duy nhất) chỉ nên có đúng 1 thẻ, tránh tái tạo tình trạng bật/tắt tỷ lệ
+    // ở 1 thẻ bị đồng bộ nhầm sang các thẻ trùng gameId khác.
+    const gameIdTaken = gameList.some((g) => g.id !== edit.id && (g.gameId || g.id) === (edit.gameId || edit.id));
+    if (gameIdTaken) {
+      return toast({
+        title: "Mã Game ID đã được dùng",
+        description: `Mã "${edit.gameId}" đã gắn với 1 sảnh khác. Mỗi trò chơi thật chỉ nên có 1 thẻ điều khiển duy nhất.`,
+        variant: "destructive",
+      });
+    }
+
     const exists = gameList.findIndex((g) => g.id === edit.id);
     let next;
     if (exists >= 0) {
@@ -206,9 +219,8 @@ export default function GameHalls() {
     setGameList(next);
   };
 
-  // Ẩn/hiện RIÊNG từng thẻ khỏi trang chủ — chỉ tác động đúng 1 dòng này (theo id), không
-  // đụng tới các thẻ khác dù chung gameId. Tỷ lệ thưởng/hẹn giờ vẫn dùng chung cho game gốc
-  // vì tất cả các thẻ cùng gameId đang trỏ vào CÙNG một ván chơi trực tiếp duy nhất.
+  // Ẩn/hiện thẻ khỏi trang chủ mà không tắt hẳn game (khác trạng thái Bảo trì/Tắt vốn
+  // chặn cả việc chơi). Chỉ tác động đúng 1 dòng theo id, không ảnh hưởng các trò chơi khác.
   const toggleTileVisible = (row) => {
     const nextVisible = row.tileVisible === false;
     const next = gameList.map((g) => (g.id === row.id ? { ...g, tileVisible: nextVisible } : g));
@@ -216,7 +228,7 @@ export default function GameHalls() {
     setGameList(next);
     toast({
       title: nextVisible ? `Đã hiện thẻ trên trang chủ: ${row.title}` : `Đã ẩn thẻ khỏi trang chủ: ${row.title}`,
-      description: nextVisible ? undefined : "Thẻ này sẽ không còn xuất hiện ở Sảnh Chơi trang chủ, các thẻ khác cùng game không bị ảnh hưởng.",
+      description: nextVisible ? undefined : "Thẻ này sẽ không còn xuất hiện ở Sảnh Chơi trang chủ. Các trò chơi khác không bị ảnh hưởng.",
     });
   };
 
@@ -269,7 +281,7 @@ export default function GameHalls() {
           <strong className="text-white/90">🟢 Active</strong> = sảnh hiển thị bình thường cho người chơi ·{" "}
           <strong className="text-white/90">🟡 Bảo trì</strong> / <strong className="text-white/90">🔴 Tắt</strong> = ẩn toàn bộ game khỏi người chơi ngay lập tức ·{" "}
           Bấm <strong className="text-white/90">Sửa tỷ lệ</strong> để đổi tỷ lệ trả thưởng thật ngay lập tức, hoặc <strong className="text-white/90">Hẹn giờ</strong> để tự động đổi tỷ lệ theo nhiều khung giờ trong ngày ·{" "}
-          Icon <strong className="text-white/90">👁 mắt</strong> cạnh tên sảnh chỉ ẩn/hiện RIÊNG thẻ đó khỏi trang chủ (nhiều thẻ cùng chung 1 game thật, vẫn dùng chung tỷ lệ/vòng cược vì đang cùng 1 ván chơi trực tiếp).
+          Icon <strong className="text-white/90">👁 mắt</strong> cạnh tên sảnh dùng để ẩn/hiện thẻ đó khỏi trang chủ mà không cần tắt hẳn game (khác với trạng thái Bảo trì/Tắt). Mỗi trò chơi thật chỉ có đúng 1 thẻ điều khiển nên Bật/Tắt tỷ lệ giữa các trò chơi khác nhau hoàn toàn độc lập.
         </p>
       </div>
 

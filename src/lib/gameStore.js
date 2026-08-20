@@ -12,11 +12,32 @@ const AUDIT_LOG_KEY = "sands_game_audit_log";
 const GAMES_STORAGE_KEY = "sands_custom_games_list";
 const FAST_FORWARD_KEY = "sands_game_fast_forward_state";
 
+// Giữ lại thẻ ĐẦU TIÊN cho mỗi gameId — đảm bảo mỗi trò chơi thật (1 ván chơi trực tiếp
+// duy nhất) chỉ có đúng 1 thẻ điều khiển trong Quản Lý Sảnh Chơi. Trước đây nhiều thẻ
+// quảng cáo (badge HOT/NEW khác nhau) cùng trỏ 1 gameId khiến bật/tắt tỷ lệ 2.05 ở 1 thẻ
+// bị đồng bộ nhầm sang các thẻ còn lại — gộp về 1 thẻ/1 game để nút Bật/Tắt thật sự riêng
+// biệt giữa các trò chơi khác nhau.
+const dedupeByGameId = (list) => {
+  const seen = new Set();
+  return list.filter((g) => {
+    const key = g.gameId || g.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 export const getCustomGames = (defaultGames) => {
   try {
     const raw = localStorage.getItem(GAMES_STORAGE_KEY);
-    if (!raw) return defaultGames;
-    return JSON.parse(raw);
+    const list = raw ? JSON.parse(raw) : defaultGames;
+    const deduped = dedupeByGameId(list);
+    if (deduped.length !== list.length) {
+      // Tự dọn dẹp 1 lần cho các trình duyệt đã lỡ lưu danh sách cũ còn thẻ trùng —
+      // lưu lại bản đã gộp để những lần đọc sau không phải xử lý lại.
+      saveCustomGames(deduped);
+    }
+    return deduped;
   } catch {
     return defaultGames;
   }
