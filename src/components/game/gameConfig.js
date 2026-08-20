@@ -104,7 +104,23 @@ export const GAME_CONFIGS = {
   },
 };
 
-export const getGameConfig = (gameId) => GAME_CONFIGS[gameId] || GAME_CONFIGS["may-man-28"];
+// Mã "lucky28" không trùng tên key thật trong GAME_CONFIGS (key thật là "may-man-28") —
+// khai báo alias để các biến thể như "lucky28-nz"/"lucky28-kr" (từ gamesData.js, mục Giải
+// Thưởng) nhận đúng giao diện cược May Mắn 28 thay vì chỉ tình cờ khớp do rơi về mặc định.
+const TYPE_ALIASES = { lucky28: "may-man-28" };
+
+// Các bàn chơi biến thể theo vùng/quốc gia (vd "xoso-tw", "pk10-vn", "lucky28-kr" — cùng
+// thể loại nhưng là bàn/ván chơi trực tiếp ĐỘC LẬP hoàn toàn ở tầng gameStore/
+// gameRoundManager: giờ quay, kết quả xổ, tỷ lệ thưởng riêng) dùng chung giao diện cược
+// với bàn gốc cùng thể loại, nhận diện qua tiền tố "<baseId hoặc alias>-...". Không tìm
+// thấy tiền tố khớp thì mới rơi về mặc định Lucky28.
+export const getGameConfig = (gameId) => {
+  if (GAME_CONFIGS[gameId]) return GAME_CONFIGS[gameId];
+  const knownPrefixes = [...Object.keys(GAME_CONFIGS), ...Object.keys(TYPE_ALIASES)];
+  const matchedPrefix = knownPrefixes.find((key) => gameId?.startsWith(`${key}-`));
+  const baseType = TYPE_ALIASES[matchedPrefix] || matchedPrefix;
+  return GAME_CONFIGS[baseType] || GAME_CONFIGS["may-man-28"];
+};
 
 export const BALL_COLORS = ["#e23b3b", "#2e7d32", "#d81b60", "#1565c0", "#f9a825", "#6a1b9a", "#00838f", "#bf360c", "#455a64", "#ad1457"];
 

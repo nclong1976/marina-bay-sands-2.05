@@ -10,13 +10,19 @@ const SETTING_KEY = 'game_configs';
 const STORAGE_KEY = "sands_game_store_config";
 const AUDIT_LOG_KEY = "sands_game_audit_log";
 const GAMES_STORAGE_KEY = "sands_custom_games_list";
+const GAMES_LIST_VERSION_KEY = "sands_custom_games_version";
+// Tăng số này khi danh sách mặc định (GAMES trong homeData.js) đổi cấu trúc theo cách cần
+// ghi đè bản đã lưu của người dùng — v2: khôi phục đủ 9 thẻ, mỗi thẻ có 1 mã gameId RIÊNG
+// (trước đó từng gộp 3 thẻ trùng gameId về còn 1, khiến bật/tắt tỷ lệ 1 thẻ ảnh hưởng luôn
+// 2 thẻ kia). v3: đổi 9 mã gameId tạm ("-2"/"-3") sang đúng 9 mã + tên đã thiết kế sẵn
+// theo vùng/quốc gia trong gamesData.js (mục Giải Thưởng). v4: bỏ title text (đặt lại về
+// rỗng) vì tên trò chơi đã được vẽ sẵn ngay trong ảnh nền (bg) — set title làm chữ bị vẽ
+// chồng lặp 2 lần chữ lên nhau trên thẻ, cùng khôi phục badge HOT bị rớt ở PK10 Đài Loan.
+const GAMES_LIST_VERSION = "v4-restore-card-images";
 const FAST_FORWARD_KEY = "sands_game_fast_forward_state";
 
-// Giữ lại thẻ ĐẦU TIÊN cho mỗi gameId — đảm bảo mỗi trò chơi thật (1 ván chơi trực tiếp
-// duy nhất) chỉ có đúng 1 thẻ điều khiển trong Quản Lý Sảnh Chơi. Trước đây nhiều thẻ
-// quảng cáo (badge HOT/NEW khác nhau) cùng trỏ 1 gameId khiến bật/tắt tỷ lệ 2.05 ở 1 thẻ
-// bị đồng bộ nhầm sang các thẻ còn lại — gộp về 1 thẻ/1 game để nút Bật/Tắt thật sự riêng
-// biệt giữa các trò chơi khác nhau.
+// An toàn phòng hờ: giữ lại thẻ ĐẦU TIÊN cho mỗi gameId nếu vì lý do gì đó danh sách bị
+// trùng trở lại (vd admin nhập tay mã Game ID trùng qua chỉnh sửa thủ công dữ liệu).
 const dedupeByGameId = (list) => {
   const seen = new Set();
   return list.filter((g) => {
@@ -29,12 +35,20 @@ const dedupeByGameId = (list) => {
 
 export const getCustomGames = (defaultGames) => {
   try {
+    // Nâng cấp 1 LẦN cho mỗi trình duyệt: nếu danh sách đã lưu thuộc phiên bản cũ (trước
+    // khi mỗi thẻ có gameId riêng), khôi phục về đủ 9 thẻ mặc định thay vì tiếp tục dùng
+    // bản rút gọn trước đó.
+    const storedVersion = localStorage.getItem(GAMES_LIST_VERSION_KEY);
+    if (storedVersion !== GAMES_LIST_VERSION) {
+      localStorage.setItem(GAMES_LIST_VERSION_KEY, GAMES_LIST_VERSION);
+      saveCustomGames(defaultGames);
+      return defaultGames;
+    }
+
     const raw = localStorage.getItem(GAMES_STORAGE_KEY);
     const list = raw ? JSON.parse(raw) : defaultGames;
     const deduped = dedupeByGameId(list);
     if (deduped.length !== list.length) {
-      // Tự dọn dẹp 1 lần cho các trình duyệt đã lỡ lưu danh sách cũ còn thẻ trùng —
-      // lưu lại bản đã gộp để những lần đọc sau không phải xử lý lại.
       saveCustomGames(deduped);
     }
     return deduped;
