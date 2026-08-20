@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useToast } from "@/components/ui/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2, Upload, Settings, History, Clock, ArrowUp, ArrowDown, Zap, Power, CalendarClock, Search, Info } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Settings, History, Clock, ArrowUp, ArrowDown, Zap, Power, CalendarClock, Search, Info, Eye, EyeOff } from "lucide-react";
 import { Panel, TableWrap, Th, Td, inputCls, ConfirmDialog } from "../ui";
 import { GAMES } from "@/components/home/homeData";
 import { getGameConfigs, updateGameConfig, formatMMSS, subscribeGameStore, getCustomGames, saveCustomGames, setGameBoostMode, getEffectiveGameOdds } from "@/lib/gameStore";
@@ -206,6 +206,20 @@ export default function GameHalls() {
     setGameList(next);
   };
 
+  // Ẩn/hiện RIÊNG từng thẻ khỏi trang chủ — chỉ tác động đúng 1 dòng này (theo id), không
+  // đụng tới các thẻ khác dù chung gameId. Tỷ lệ thưởng/hẹn giờ vẫn dùng chung cho game gốc
+  // vì tất cả các thẻ cùng gameId đang trỏ vào CÙNG một ván chơi trực tiếp duy nhất.
+  const toggleTileVisible = (row) => {
+    const nextVisible = row.tileVisible === false;
+    const next = gameList.map((g) => (g.id === row.id ? { ...g, tileVisible: nextVisible } : g));
+    saveCustomGames(next);
+    setGameList(next);
+    toast({
+      title: nextVisible ? `Đã hiện thẻ trên trang chủ: ${row.title}` : `Đã ẩn thẻ khỏi trang chủ: ${row.title}`,
+      description: nextVisible ? undefined : "Thẻ này sẽ không còn xuất hiện ở Sảnh Chơi trang chủ, các thẻ khác cùng game không bị ảnh hưởng.",
+    });
+  };
+
   const remove = () => {
     if (!del) return;
     const next = gameList.filter((g) => g.id !== del.id);
@@ -253,8 +267,9 @@ export default function GameHalls() {
         <Info className="w-4 h-4 text-[#bd9c59] shrink-0 mt-0.5" />
         <p>
           <strong className="text-white/90">🟢 Active</strong> = sảnh hiển thị bình thường cho người chơi ·{" "}
-          <strong className="text-white/90">🟡 Bảo trì</strong> / <strong className="text-white/90">🔴 Tắt</strong> = ẩn sảnh khỏi người chơi ngay lập tức ·{" "}
-          Bấm <strong className="text-white/90">Sửa tỷ lệ</strong> để đổi tỷ lệ trả thưởng thật ngay lập tức, hoặc <strong className="text-white/90">Hẹn giờ</strong> để tự động đổi tỷ lệ theo nhiều khung giờ trong ngày.
+          <strong className="text-white/90">🟡 Bảo trì</strong> / <strong className="text-white/90">🔴 Tắt</strong> = ẩn toàn bộ game khỏi người chơi ngay lập tức ·{" "}
+          Bấm <strong className="text-white/90">Sửa tỷ lệ</strong> để đổi tỷ lệ trả thưởng thật ngay lập tức, hoặc <strong className="text-white/90">Hẹn giờ</strong> để tự động đổi tỷ lệ theo nhiều khung giờ trong ngày ·{" "}
+          Icon <strong className="text-white/90">👁 mắt</strong> cạnh tên sảnh chỉ ẩn/hiện RIÊNG thẻ đó khỏi trang chủ (nhiều thẻ cùng chung 1 game thật, vẫn dùng chung tỷ lệ/vòng cược vì đang cùng 1 ván chơi trực tiếp).
         </p>
       </div>
 
@@ -355,7 +370,7 @@ export default function GameHalls() {
               const scheduleCount = (cfg.oddsSchedules || []).length;
 
               return (
-                <tr key={g.id} className="border-t border-white/5 hover:bg-white/[0.02]">
+                <tr key={g.id} className={`border-t border-white/5 hover:bg-white/[0.02] ${g.tileVisible === false ? "opacity-45" : ""}`}>
                   <Td className="text-white/40">
                     <div className="flex items-center gap-1">
                       <span>{i + 1}</span>
@@ -372,10 +387,21 @@ export default function GameHalls() {
                       ) : (
                         <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#7033ff] to-[#4b00ff]" />
                       )}
-                      <div>
-                        <p className="font-medium text-white text-sm">{g.title || "(Không có tên)"}</p>
-                        <p className="text-[10px] text-white/40 font-mono">ID: {gameKey} {g.badge ? `· [${g.badge.toUpperCase()}]` : ""}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-white text-sm truncate">{g.title || "(Không có tên)"}</p>
+                        <p className="text-[10px] text-white/40 font-mono truncate">ID: {gameKey} {g.badge ? `· [${g.badge.toUpperCase()}]` : ""}</p>
                       </div>
+                      <button
+                        onClick={() => toggleTileVisible(g)}
+                        title={g.tileVisible === false ? "Đang ẩn khỏi trang chủ — bấm để hiện lại" : "Đang hiện trên trang chủ — bấm để ẩn riêng thẻ này"}
+                        className={`ml-auto shrink-0 p-1.5 rounded-lg transition-colors ${
+                          g.tileVisible === false
+                            ? "bg-white/5 text-white/30 hover:text-white/60 hover:bg-white/10"
+                            : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        {g.tileVisible === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
                     </div>
                   </Td>
                   <Td>
