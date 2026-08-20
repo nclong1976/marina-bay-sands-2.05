@@ -66,7 +66,9 @@ export default function Home() {
   const { t } = useI18n();
 
   const games = useMemo(() => {
-    let list = allGames;
+    // Chỉ ẩn/hiện TỪNG thẻ khỏi trang chủ theo tileVisible — độc lập với các thẻ khác
+    // cùng chung 1 game gốc (tỷ lệ thưởng/vòng cược vẫn dùng chung vì là cùng 1 ván chơi).
+    let list = allGames.filter((g) => g.tileVisible !== false);
     if (category !== "all") list = list.filter((g) => g.category === category);
     if (search.trim()) list = list.filter((g) => (g.title || "").toLowerCase().includes(search.toLowerCase()));
     return list;
