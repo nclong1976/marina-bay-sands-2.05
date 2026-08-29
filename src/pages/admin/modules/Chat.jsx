@@ -1,350 +1,420 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useToast } from "@/components/ui/use-toast";
-import { Image as ImageIcon, Send, Search, Trash2, Ghost } from "lucide-react";
-import { Panel, inputCls } from "../ui";
-import { Image as Img } from "@/components/ui/image";
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  getChatMessages,
-  getConversations,
-  addChatMessage,
-  subscribeChat,
-  deleteChatMessage,
-  toggleSecretChatUser,
-  isSecretChatUser,
-  hydrateAdminChatHistory,
-} from "@/lib/localChat";
-import { localListUsers } from "@/lib/localAuth";
-import { useAuth } from "@/lib/AuthContext";
+  Send, Search, Ghost, Trash2, MessageSquare,
+  Loader2, RefreshCw, CheckCheck, Clock, ChevronDown
+} from 'lucide-react';
+import { Panel, inputCls } from '../ui';
+import { useAuth } from '@/lib/AuthContext';
+import { useAdminChat } from '@/hooks/useAdminChat';
+import { deleteChatMessage } from '@/lib/localChat';
+import { useToast } from '@/components/ui/use-toast';
 
+// ─── Avatar ──────────────────────────────────────────────────────────────────
+const Avatar = ({ name, role }) => {
+  const isAdmin = role === 'admin' || role === 'super_admin';
+  const letter = (name || 'U').charAt(0).toUpperCase();
+  return (
+    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold shadow
+      ${isAdmin
+        ? 'bg-gradient-to-br from-amber-400 to-orange-500'
+        : 'bg-gradient-to-br from-indigo-500 to-purple-600'
+      }`}
+    >
+      {letter}
+    </div>
+  );
+};
+
+// ─── Typing dots ──────────────────────────────────────────────────────────────
+const TypingDots = ({ label = 'đang gõ...' }) => (
+  <div className="flex items-center gap-1.5 px-3 py-1.5">
+    {[0, 1, 2].map((i) => (
+      <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/50 animate-bounce"
+        style={{ animationDelay: `${i * 0.15}s` }} />
+    ))}
+    <span className="text-[10px] text-white/40 ml-1">{label}</span>
+  </div>
+);
+
+// ─── Message bubble ───────────────────────────────────────────────────────────
+const MessageBubble = ({ msg, isFromAdmin, onDelete, canDelete }) => {
+  const time = msg.created_at
+    ? new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  const isRead = isFromAdmin ? msg.read_by_user : msg.read_by_admin;
+
+  return (
+    <div className={`group flex items-end gap-2 ${isFromAdmin ? 'flex-row-reverse' : 'flex-row'}`}>
+      {/* Delete btn for super_admin */}
+      {canDelete && (
+        <button
+          onClick={() => onDelete(msg.id)}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg
+            text-rose-400 hover:bg-rose-500/20 shrink-0 mb-1"
+          title="Xóa tin nhắn"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
+
+      <Avatar name={msg.username} role={msg.sender_role} />
+
+      <div className={`max-w-[72%] flex flex-col ${isFromAdmin ? 'items-end' : 'items-start'}`}>
+        <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm
+          ${isFromAdmin
+            ? 'bg-gradient-to-br from-[#7033ff] to-[#4b00ff] text-white rounded-br-sm'
+            : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
+          }`}
+        >
+          {msg.message}
+        </div>
+        <div className={`flex items-center gap-1 mt-0.5 px-1 ${isFromAdmin ? 'flex-row-reverse' : ''}`}>
+          <span className="text-[10px] text-white/35">{time}</span>
+          {isFromAdmin && (
+            isRead
+              ? <CheckCheck size={12} className="text-indigo-400" title="Đã đọc" />
+              : <CheckCheck size={12} className="text-white/25" title="Chưa đọc" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Conversation Item ────────────────────────────────────────────────────────
+const ConvItem = ({ conv, isActive, onClick }) => {
+  const profile = conv.users_profile || {};
+  const displayName = profile.full_name || profile.account || conv.user_id;
+  const unread = conv.unread_admin || 0;
+  const lastTime = conv.last_message_at
+    ? new Date(conv.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left px-3 py-3 border-b border-white/5
+        hover:bg-white/5 transition-colors flex items-start gap-2.5
+        ${isActive ? 'bg-white/10 border-l-2 border-l-[#7033ff]' : ''}`}
+    >
+      <Avatar name={displayName} role="user" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <p className="text-sm font-medium text-white truncate">{displayName}</p>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] text-white/35">{lastTime}</span>
+            {unread > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center
+                text-[10px] font-bold text-white bg-red-500 rounded-full">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-[11px] text-white/40 truncate">{conv.last_message_body || 'Chưa có tin nhắn'}</p>
+      </div>
+    </button>
+  );
+};
+
+// ─── Quick Templates ──────────────────────────────────────────────────────────
+const QUICK_TEMPLATES = [
+  {
+    label: '👋 Chào CSKH',
+    text: 'Xin chào quý khách! CSKH 24/7 hân hạnh được phục vụ bạn. Bạn cần hỗ trợ về vấn đề gì ạ?',
+  },
+  {
+    label: '🎁 Khuyến Mãi',
+    text: `Xin chào! 👋\n\nTrân trọng gửi đến bạn chương trình "KHUYẾN MÃI TRI ÁN ĐẶC BIỆT" từ Marina Bay Sands MBS!\n⏰ Thời gian: 01/08/2026 - 31/08/2026\n\n🎁 NỘI DUNG:\n• Nạp 3,000$ → Nhận 288$\n• Nạp 5,000$ → Nhận 388$\n• Nạp 10,000$ → Nhận 888$\n• Nạp 50,000$ → Nhận 3,888$`,
+  },
+  {
+    label: '💳 Hướng Dẫn Nạp',
+    text: 'Để nạp tiền nhanh chóng, quý khách vào mục Nạp Tiền → Chọn Ngân hàng/Crypto USDT → Chuyển khoản theo mã QR. Tiền vào tài khoản tự động trong 1–3 phút!',
+  },
+  {
+    label: '💸 Hướng Dẫn Rút',
+    text: 'Để rút tiền, bạn vào mục Rút Tiền → Điền số tiền & thông tin Ngân hàng chính chủ → Bấm Xác nhận. Admin sẽ duyệt trong ít phút.',
+  },
+];
+
+// ─── Main Chat Module ─────────────────────────────────────────────────────────
 export default function Chat() {
   const { toast } = useToast();
   const { user: currentUser } = useAuth();
-  const isSuperAdmin = currentUser?.role === "super_admin";
+  const isSuperAdmin = currentUser?.role === 'super_admin';
 
-  const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [activeUser, setActiveUser] = useState(null);
-  const [text, setText] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [q, setQ] = useState("");
-  const fileRef = useRef(null);
-  const endRef = useRef(null);
+  const {
+    conversations,
+    activeConvId,
+    activeConversation,
+    setActiveConvId,
+    messages,
+    userIsTyping,
+    isLoadingConvs,
+    isLoadingMsgs,
+    sendReply,
+    notifyTyping,
+    totalUnread,
+    refreshConversations,
+  } = useAdminChat();
 
-  const load = () => {
-    setMessages(getChatMessages(currentUser?.role));
-    setUsers(localListUsers(currentUser?.role));
+  const [text, setText] = useState('');
+  const [q, setQ] = useState('');
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const messagesEndRef = useRef(null);
+  const scrollAreaRef = useRef(null);
+  const inputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+
+  // Scroll cuối khi có tin mới
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, userIsTyping]);
+
+  const onScroll = () => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
   };
 
-  useEffect(() => {
-    load();
-    // Khôi phục các hội thoại gần đây từ Supabase — để Admin thấy đúng tin nhắn của
-    // người dùng dù họ nhắn từ thiết bị nào, kể cả khi Admin mới mở trình duyệt này lần đầu.
-    hydrateAdminChatHistory().then(load);
-    const unsub = subscribeChat(load);
-    return () => unsub && unsub();
-  }, [currentUser?.role]);
+  // Chọn conversation
+  const handleSelectConv = useCallback((convId) => {
+    setActiveConvId(convId, currentUser?.role);
+  }, [setActiveConvId, currentUser?.role]);
 
-  const conversations = useMemo(() => getConversations(currentUser?.role), [messages, currentUser?.role]);
+  // Gửi tin nhắn
+  const handleSend = useCallback(async () => {
+    if (!text.trim() || !activeConvId) return;
+    const t = text;
+    setText('');
+    notifyTyping(false, currentUser);
+    clearTimeout(typingTimeoutRef.current);
+    await sendReply(t, currentUser);
+    inputRef.current?.focus();
+  }, [text, activeConvId, sendReply, notifyTyping, currentUser]);
 
-  const filteredUsers = useMemo(
-    () => users.filter((u) => !q || (u.full_name || u.email || u.account || "").toLowerCase().includes(q.toLowerCase())),
-    [users, q]
-  );
-
-  const thread = useMemo(
-    () =>
-      messages
-        .filter((m) => String(m.userId) === String(activeUser?.id))
-        .sort((a, b) => new Date(a.created_date) - new Date(b.created_date)),
-    [messages, activeUser]
-  );
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [thread.length, activeUser]);
-
-  const isCurrentActiveSecret = activeUser ? isSecretChatUser(activeUser.id) : false;
-
-  const handleToggleSecret = () => {
-    if (!activeUser || !isSuperAdmin) return;
-    const nowSecret = toggleSecretChatUser(activeUser.id);
-    toast({
-      title: nowSecret ? "🕵️ Trò Chuyện Bí Mật Kích Hoạt" : "💬 Trở Về Trò Chuyện Thường",
-      description: nowSecret
-        ? `Đã chuyển cuộc hội thoại với ${activeUser.full_name || activeUser.account} sang chế độ Bóng Ma Bí Mật (Ẩn hoàn toàn với Admin thường).`
-        : `Đã đưa cuộc hội thoại về chế độ công khai cho Admin thường.`,
-    });
-    load();
+  // Typing
+  const handleInputChange = (e) => {
+    setText(e.target.value);
+    notifyTyping(true, currentUser);
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => notifyTyping(false, currentUser), 1500);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  // Xóa tin nhắn (Super Admin)
   const handleDeleteMessage = (msgId) => {
     if (!isSuperAdmin) return;
     deleteChatMessage(msgId);
-    toast({
-      title: "Đã xóa tin nhắn",
-      description: "Super Admin đã thu hồi/xóa tin nhắn khỏi cuộc trò chuyện.",
-    });
-    load();
+    toast({ title: 'Đã xóa tin nhắn', description: 'Super Admin đã thu hồi tin nhắn.' });
   };
 
-  const send = () => {
-    if (!activeUser || !text.trim()) return;
-    addChatMessage({
-      userId: activeUser.id,
-      userEmail: activeUser.email,
-      userName: activeUser.full_name || activeUser.account,
-      senderRole: isSuperAdmin ? "super_admin" : "admin",
-      body: text.trim(),
-      isSecret: isCurrentActiveSecret,
-    });
-    setText("");
+  // Quick template
+  const sendTemplate = (templateText) => {
+    if (!activeConvId) return;
+    sendReply(templateText, currentUser);
   };
 
-  const sendImage = (e) => {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f || !activeUser) return;
-    setUploading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      addChatMessage({
-        userId: activeUser.id,
-        userEmail: activeUser.email,
-        userName: activeUser.full_name || activeUser.account,
-        senderRole: isSuperAdmin ? "super_admin" : "admin",
-        image: reader.result,
-        isSecret: isCurrentActiveSecret,
-      });
-      setUploading(false);
-    };
-    reader.onerror = () => {
-      setUploading(false);
-      toast({ title: "Lỗi gửi ảnh", variant: "destructive" });
-    };
-    reader.readAsDataURL(f);
-  };
+  // Lọc conversations theo search
+  const filtered = conversations.filter((c) => {
+    if (!q) return true;
+    const profile = c.users_profile || {};
+    const name = (profile.full_name || profile.account || '').toLowerCase();
+    return name.includes(q.toLowerCase());
+  });
 
-  const ADMIN_QUICK_TEMPLATES = [
-    {
-      label: "🎁 Khuyến Mãi MBS Tri Án",
-      text: `Xin chào! 👋\n\nTrân trọng gửi đến bạn chương trình "KHUYẾN MÃI TRI ÁN ĐẶC BIỆT" từ Marina Bay Sands MBS!\n⏰ Thời gian áp dụng: 01/08/2026 - 31/08/2026\n\n🎁 NỘI DUNG KHUYẾN MÃI:\n• Nạp 3,000$ -> Nhận ngay 288$\n• Nạp 5,000$ -> Nhận ngay 388$\n• Nạp 10,000$ -> Nhận ngay 888$\n• Nạp 50,000$ -> Nhận ngay 3,888$\n• Nạp 100,000$ -> Nhận ngay 8,888$\n• Nạp đến 10,000,000$ -> Thưởng tối đa 588,888$\n\n💡 VÍ DỤ: Bạn đã nạp 3,000$ và nhận 288$. Sau đó nạp thêm 7,000$ đạt mốc 10,000$, bạn sẽ nhận tổng cộng: 288$ + 388$ + 588$ = 888$!\n\n⚠️ Lưu ý: Nếu bạn đã nhận thưởng và rút tiền, bạn sẽ không thể tiếp tục tham gia chương trình tích lũy này.`
-    },
-    {
-      label: "👋 Lời Chào CSKH",
-      text: "Xin chào quý khách! CSKH 24/7 hân hạnh được phục vụ bạn. Bạn cần hỗ trợ về Nạp/Rút tiền hay thắc mắc dịch vụ nào ạ?"
-    },
-    {
-      label: "💳 Hướng Dẫn Nạp",
-      text: "Để nạp tiền nhanh chóng, quý khách vui lòng vào mục Nạp Tiền -> Chọn Ngân hàng/Crypto USDT -> Chuyển khoản theo mã QR và nội dung chỉ định. Tiền sẽ vào tài khoản tự động trong 1-3 phút!"
-    },
-    {
-      label: "💸 Hướng Dẫn Rút",
-      text: "Để rút tiền, bạn vào mục Rút Tiền -> Điền số tiền & thông tin Ngân hàng chính chủ -> Bấm Xác nhận. Admin sẽ xét duyệt đơn rút tiền của bạn trong ít phút."
-    }
-  ];
-
-  const sendQuickTemplate = (templateText) => {
-    if (!activeUser) return;
-    addChatMessage({
-      userId: activeUser.id,
-      userEmail: activeUser.email,
-      userName: activeUser.full_name || activeUser.account,
-      senderRole: isSuperAdmin ? "super_admin" : "admin",
-      body: templateText,
-      isSecret: isCurrentActiveSecret,
-    });
-  };
+  const activeProfile = activeConversation?.users_profile || {};
+  const activeName = activeProfile.full_name || activeProfile.account || activeConvId;
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            Quản Lý Tin Nhắn / Hỗ Trợ Client
+            <MessageSquare className="w-5 h-5 text-[#ffab40]" />
+            Chăm Sóc Khách Hàng — Live Chat
             {isSuperAdmin && (
               <span className="bg-[#7033ff]/20 text-[#ebd39a] border border-[#7033ff]/50 text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                <Ghost size={14} /> Super Admin Ghost Mode
+                <Ghost size={13} /> Super Admin
+              </span>
+            )}
+            {totalUnread > 0 && (
+              <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
+                {totalUnread > 99 ? '99+' : totalUnread}
               </span>
             )}
           </h1>
           <p className="text-xs text-white/50 mt-0.5">
-            {isSuperAdmin
-              ? "Toàn quyền quản lý, xóa tin nhắn & Trò chuyện Bí Mật không để lại dấu vết với Admin thường"
-              : "Kênh hỗ trợ và chăm sóc khách hàng trực tuyến"}
+            Realtime qua Supabase — Hội thoại 1-1 với từng khách hàng
           </p>
         </div>
+        <button
+          onClick={refreshConversations}
+          className="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          title="Tải lại"
+        >
+          <RefreshCw size={15} className={isLoadingConvs ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4 h-[calc(100dvh-180px)] min-h-[420px]">
-        {/* Sidebar Left: Users & Conversations */}
+      {/* 2-Column Layout */}
+      <div className="grid lg:grid-cols-3 gap-4 h-[calc(100dvh-180px)] min-h-[480px]">
+
+        {/* ── LEFT: Conversations List ────────────────────────── */}
         <Panel className="lg:col-span-1 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-white/10">
+          {/* Search */}
+          <div className="p-2.5 border-b border-white/10 shrink-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
               <input
                 className={`${inputCls} pl-8`}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Tìm người dùng…"
+                placeholder="Tìm khách hàng…"
               />
             </div>
           </div>
+
+          {/* List */}
           <div className="flex-1 overflow-y-auto">
-            {conversations.length > 0 && (
-              <p className="px-3 pt-2 pb-1 text-[10px] uppercase text-white/40 font-semibold">
-                Cuộc hội thoại
-              </p>
+            {isLoadingConvs && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 text-white/40 animate-spin" />
+              </div>
             )}
-            {conversations.map((c) => {
-              const isSec = isSecretChatUser(c.userId);
-              return (
-                <button
-                  key={c.userId}
-                  onClick={() =>
-                    setActiveUser({ id: c.userId, email: c.userEmail, full_name: c.userName })
-                  }
-                  className={`w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors ${
-                    activeUser?.id === c.userId ? "bg-white/10" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-white truncate">{c.userName || c.userEmail}</p>
-                    {isSuperAdmin && isSec && (
-                      <span className="text-[10px] font-bold text-[#ebd39a] bg-[#7033ff]/30 px-1.5 py-0.5 rounded border border-[#7033ff]/40 shrink-0">
-                        🕵️ Bí Mật
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-white/45 truncate mt-0.5">{c.lastBody}</p>
-                </button>
-              );
-            })}
-            <p className="px-3 pt-2 pb-1 text-[10px] uppercase text-white/40 font-semibold">
-              Tất cả người dùng
-            </p>
-            {filteredUsers.map((u) => {
-              const isSec = isSecretChatUser(u.id);
-              return (
-                <button
-                  key={u.id}
-                  onClick={() => setActiveUser(u)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors ${
-                    activeUser?.id === u.id ? "bg-white/10" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-white truncate">{u.full_name || u.account}</p>
-                    {isSuperAdmin && isSec && (
-                      <span className="text-[10px] font-bold text-[#ebd39a] bg-[#7033ff]/30 px-1.5 py-0.5 rounded border border-[#7033ff]/40 shrink-0">
-                        🕵️ Bí Mật
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-white/45 truncate">{u.email}</p>
-                </button>
-              );
-            })}
-            {filteredUsers.length === 0 && conversations.length === 0 && (
-              <p className="px-3 py-4 text-xs text-white/40">Chưa có người dùng nào.</p>
+
+            {!isLoadingConvs && filtered.length === 0 && (
+              <div className="px-4 py-8 text-center">
+                <MessageSquare className="w-8 h-8 text-white/20 mx-auto mb-2" />
+                <p className="text-xs text-white/40">Chưa có hội thoại nào</p>
+              </div>
             )}
+
+            {filtered.map((conv) => (
+              <ConvItem
+                key={conv.id}
+                conv={conv}
+                isActive={conv.id === activeConvId}
+                onClick={() => handleSelectConv(conv.id)}
+              />
+            ))}
           </div>
         </Panel>
 
-        {/* Chat Thread Panel */}
-        <Panel className="lg:col-span-2 overflow-hidden flex flex-col">
-          {activeUser ? (
+        {/* ── RIGHT: Chat Thread ──────────────────────────────── */}
+        <Panel className="lg:col-span-2 overflow-hidden flex flex-col relative">
+          {!activeConvId ? (
+            /* Empty state */
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                <MessageSquare className="w-8 h-8" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium">Chọn một hội thoại</p>
+                <p className="text-xs mt-1">để bắt đầu trả lời khách hàng</p>
+              </div>
+            </div>
+          ) : (
             <>
-              {/* Header */}
-              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-white">
-                      {activeUser.full_name || activeUser.account || activeUser.email}
-                    </p>
-                    {isCurrentActiveSecret && isSuperAdmin && (
-                      <span className="bg-[#7033ff]/30 text-[#ebd39a] text-[11px] px-2 py-0.5 rounded border border-[#7033ff]/40 font-semibold flex items-center gap-1">
-                        <Ghost size={12} /> Ẩn với Admin thường
-                      </span>
-                    )}
+              {/* Thread Header */}
+              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <Avatar name={activeName} role="user" />
+                  <div>
+                    <p className="text-sm font-semibold text-white">{activeName}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] text-white/40">
+                        {activeProfile.email || activeProfile.account || ''}
+                      </p>
+                      {activeConversation?.status === 'open' && (
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                          Mở
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-white/45">{activeUser.email}</p>
                 </div>
-
                 {isSuperAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleToggleSecret}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border ${
-                      isCurrentActiveSecret
-                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
-                        : "bg-[#7033ff]/20 text-[#ebd39a] border-[#7033ff]/40 hover:bg-[#7033ff]/30"
-                    }`}
-                  >
-                    <Ghost size={14} />
-                    {isCurrentActiveSecret ? "Gỡ Khỏi Trò Chuyện Bí Mật" : "+ Trò Chuyện Bí Mật (Bóng Ma)"}
-                  </button>
+                  <span className="text-[11px] text-white/30 flex items-center gap-1">
+                    <Ghost size={12} /> Ghost Mode
+                  </span>
                 )}
               </div>
 
-              {/* Message History */}
-              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-                {thread.length === 0 && (
-                  <p className="text-center text-white/40 text-sm py-8">Chưa có tin nhắn. Hãy gửi lời chào!</p>
+              {/* Messages */}
+              <div
+                ref={scrollAreaRef}
+                onScroll={onScroll}
+                className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scroll-smooth"
+                style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.08) transparent' }}
+              >
+                {isLoadingMsgs && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="w-5 h-5 text-white/30 animate-spin" />
+                  </div>
                 )}
-                {thread.map((m) => {
-                  const isFromAdmin = m.senderRole === "admin" || m.senderRole === "super_admin";
-                  return (
-                    <div
-                      key={m.id}
-                      className={`group flex items-center gap-2 ${
-                        isFromAdmin ? "justify-end" : "justify-start"
-                      }`}
-                    >
-                      {/* Delete button for Super Admin */}
-                      {isSuperAdmin && (
-                        <button
-                          onClick={() => handleDeleteMessage(m.id)}
-                          title="Xóa tin nhắn (Super Admin)"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 order-first"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
 
-                      <div
-                        className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm relative ${
-                          isFromAdmin
-                            ? "bg-gradient-to-br from-[#7033ff] to-[#4b00ff] text-white"
-                            : "bg-white/10 text-white"
-                        }`}
-                      >
-                        {m.image ? (
-                          <Img
-                            src={m.image}
-                            alt=""
-                            fittingType="fit"
-                            className="rounded-xl w-full max-w-[280px] sm:max-w-[340px] max-h-[350px] object-cover"
-                          />
-                        ) : (
-                          <div className="whitespace-pre-wrap leading-relaxed">{m.body || ""}</div>
-                        )}
-                      </div>
-                    </div>
+                {!isLoadingMsgs && messages.length === 0 && (
+                  <p className="text-center text-white/30 text-sm py-8">
+                    Chưa có tin nhắn. Hãy gửi lời chào đến khách hàng!
+                  </p>
+                )}
+
+                {messages.map((msg) => {
+                  const isFromAdmin = msg.sender_role === 'admin' || msg.sender_role === 'super_admin';
+                  return (
+                    <MessageBubble
+                      key={msg.id}
+                      msg={msg}
+                      isFromAdmin={isFromAdmin}
+                      onDelete={handleDeleteMessage}
+                      canDelete={isSuperAdmin}
+                    />
                   );
                 })}
-                {uploading && <p className="text-center text-xs text-white/50">Đang gửi ảnh...</p>}
-                <div ref={endRef} />
+
+                {/* User typing indicator */}
+                {userIsTyping && (
+                  <div className="flex items-end gap-2">
+                    <Avatar name={activeName} role="user" />
+                    <div className="bg-white/10 border border-white/10 rounded-2xl rounded-bl-sm">
+                      <TypingDots label="đang gõ..." />
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
               </div>
 
+              {/* Scroll button */}
+              {showScrollBtn && (
+                <button
+                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                  className="absolute bottom-28 right-6 w-8 h-8 rounded-full bg-white/15
+                    backdrop-blur border border-white/10 flex items-center justify-center
+                    text-white/70 hover:bg-white/25 transition-colors shadow-lg"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              )}
+
               {/* Quick Templates */}
-              <div className="px-3 py-2 bg-white/5 border-t border-white/10 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-                <span className="text-[11px] font-medium text-[#ffab40] shrink-0">Mẫu Nhanh:</span>
-                {ADMIN_QUICK_TEMPLATES.map((tmpl, idx) => (
+              <div className="px-3 py-2 bg-white/[0.03] border-t border-white/10 flex items-center gap-1.5 overflow-x-auto shrink-0">
+                <span className="text-[11px] font-semibold text-[#ffab40] shrink-0">Mẫu nhanh:</span>
+                {QUICK_TEMPLATES.map((tmpl, i) => (
                   <button
-                    key={idx}
-                    type="button"
-                    onClick={() => sendQuickTemplate(tmpl.text)}
-                    className="shrink-0 text-xs bg-white/10 hover:bg-[#ffab40] text-white/90 hover:text-black font-medium px-2.5 py-1 rounded-md border border-white/10 transition-colors"
+                    key={i}
+                    onClick={() => sendTemplate(tmpl.text)}
+                    className="shrink-0 text-xs bg-white/8 hover:bg-[#ffab40] text-white/80
+                      hover:text-black font-medium px-2.5 py-1 rounded-md border border-white/10
+                      transition-colors whitespace-nowrap"
                   >
                     {tmpl.label}
                   </button>
@@ -352,46 +422,35 @@ export default function Chat() {
               </div>
 
               {/* Input Footer */}
-              <div className="flex items-center gap-2 px-3 py-3 border-t border-white/10">
-                <button
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                  className="p-2 text-[#ffab40] disabled:opacity-50"
-                >
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={sendImage}
-                />
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      send();
-                    }
-                  }}
-                  rows={1}
-                  placeholder="Nhập tin nhắn (Shift+Enter để xuống dòng)..."
-                  className="flex-1 bg-white/5 border border-white/10 text-white placeholder:text-white/40 focus:border-[#ffab40] focus:ring-1 focus:ring-[#ffab40] rounded-xl text-sm px-3 py-2 resize-none max-h-24 min-h-[38px]"
-                />
-                <button
-                  onClick={send}
-                  className="h-9 px-3 rounded-lg bg-gradient-to-r from-[#ffab40] to-[#e67e22] text-white flex items-center gap-1 text-sm shrink-0"
-                >
-                  <Send size={16} />
-                </button>
+              <div className="px-3 py-3 border-t border-white/10 shrink-0">
+                <div className="flex items-end gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2
+                  focus-within:border-[#ffab40]/50 focus-within:ring-1 focus-within:ring-[#ffab40]/20 transition-all">
+                  <textarea
+                    ref={inputRef}
+                    id="admin-chat-input"
+                    value={text}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    rows={1}
+                    placeholder="Nhập phản hồi (Enter để gửi, Shift+Enter xuống dòng)..."
+                    className="flex-1 bg-transparent text-white text-sm placeholder:text-white/35
+                      resize-none outline-none min-h-[24px] max-h-24 leading-6"
+                    style={{ fieldSizing: 'content' }}
+                  />
+                  <button
+                    id="admin-chat-send"
+                    onClick={handleSend}
+                    disabled={!text.trim()}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
+                      bg-gradient-to-r from-[#ffab40] to-[#e67e22] text-white
+                      disabled:opacity-40 disabled:cursor-not-allowed
+                      hover:opacity-90 active:scale-95 transition-all shadow-md"
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
               </div>
             </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-white/40 text-sm">
-              Chọn một người dùng để bắt đầu trò chuyện
-            </div>
           )}
         </Panel>
       </div>

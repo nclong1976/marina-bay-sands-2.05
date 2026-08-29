@@ -12,6 +12,7 @@ import BannerCarousel from "@/components/home/BannerCarousel";
 import GameSearchBar from "@/components/home/GameSearchBar";
 import GameGrid from "@/components/home/GameGrid";
 import FloatingChatButton from "@/components/home/FloatingChatButton";
+import ChatWidget from "@/components/chat/ChatWidget";
 import SupportChat from "@/components/profile/SupportChat";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import LinkAccountModal from "@/components/profile/LinkAccountModal";
@@ -230,6 +231,8 @@ export default function Home() {
         </div>
       </div>
 
+      {/* New Supabase Realtime Chat Widget (hidden for admin) */}
+      <ChatWidget />
       <FloatingChatButton onClick={openChat} unread={0} />
       <BottomNav />
 

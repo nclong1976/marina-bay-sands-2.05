@@ -632,3 +632,206 @@ export const spFetchUserNotifications = async (userId, limit = 100) => {
   if (error) return null;
   return data || [];
 };
+
+// ====================================================================
+// LIVE CHAT CSKH — v2 (Conversations + Read Receipts + Typing)
+// ====================================================================
+
+/**
+ * Lấy hoặc tạo mới conversation cho 1 user (1 user = 1 conversation).
+ */
+export const spGetOrCreateConversation = async (userId) => {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  const { data: existing } = await supabase
+    .from('support_conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const newConv = {
+    id: 'conv_' + userId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40),
+    user_id: userId,
+    status: 'open',
+    unread_admin: 0,
+    unread_user: 0,
+    last_message_at: new Date().toISOString(),
+    last_message_body: '',
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('support_conversations')
+    .insert([newConv])
+    .select()
+    .single();
+
+  if (error) {
+    // Race condition: thử lấy lại
+    const { data: retry } = await supabase
+      .from('support_conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    return retry;
+  }
+  return data;
+};
+
+/**
+ * Admin: lấy tất cả conversations, sort theo tin nhắn mới nhất.
+ */
+export const spFetchAllConversations = async () => {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await supabase
+    .from('support_conversations')
+    .select('*, users_profile:user_id(id, account, full_name, email, role)')
+    .order('last_message_at', { ascending: false });
+
+  if (error) { console.error('spFetchAllConversations:', error); return []; }
+  return data || [];
+};
+
+/**
+ * Lấy lịch sử tin nhắn của 1 conversation.
+ */
+export const spFetchConversationMessages = async (conversationId, limit = 200) => {
+  if (!isSupabaseConfigured() || !conversationId) return [];
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) { console.error('spFetchConversationMessages:', error); return []; }
+  return data || [];
+};
+
+/**
+ * Gửi tin nhắn kèm conversation_id (v2).
+ * DB Trigger sẽ tự cập nhật last_message_at và unread counts.
+ */
+export const spSendChatMessageV2 = async (msg) => {
+  if (!isSupabaseConfigured()) return null;
+
+  const newMsg = {
+    id: msg.id || 'msg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    user_id: msg.userId || 'guest',
+    username: msg.username || 'Khách',
+    message: msg.message || msg.text || '',
+    avatar: msg.avatar || '',
+    sender_role: msg.senderRole || 'user',
+    is_secret: !!msg.isSecret,
+    conversation_id: msg.conversationId || null,
+    read_by_admin: msg.senderRole === 'admin' || msg.senderRole === 'super_admin',
+    read_by_user: msg.senderRole === 'user',
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .insert([newMsg])
+    .select()
+    .single();
+
+  if (error) console.error('spSendChatMessageV2:', error);
+  return data;
+};
+
+/**
+ * Đánh dấu đã đọc tất cả tin nhắn trong conversation.
+ * role = 'admin'|'super_admin' → reset unread_admin=0
+ * role = 'user' → reset unread_user=0
+ */
+export const spMarkConversationRead = async (conversationId, role = 'user') => {
+  if (!isSupabaseConfigured() || !conversationId) return;
+
+  const isAdmin = role === 'admin' || role === 'super_admin';
+  const msgPatch = isAdmin ? { read_by_admin: true } : { read_by_user: true };
+  const convPatch = isAdmin ? { unread_admin: 0 } : { unread_user: 0 };
+
+  await supabase
+    .from('chat_messages')
+    .update(msgPatch)
+    .eq('conversation_id', conversationId)
+    .eq(isAdmin ? 'read_by_admin' : 'read_by_user', false);
+
+  await supabase
+    .from('support_conversations')
+    .update(convPatch)
+    .eq('id', conversationId);
+};
+
+/**
+ * Realtime: lắng nghe thay đổi danh sách conversations (Admin).
+ */
+export const spSubscribeConversations = subscribeShared(
+  'public:support_conversations',
+  (emit) =>
+    supabase
+      .channel('public:support_conversations')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'support_conversations' },
+        (payload) => { if (payload.new) emit(payload.new); }
+      )
+      .subscribe()
+);
+
+/**
+ * Realtime: lắng nghe tin nhắn mới trong 1 conversation cụ thể.
+ */
+export const spSubscribeConversationMessages = (conversationId, onMessage) => {
+  if (!isSupabaseConfigured() || !supabase || !conversationId) return () => {};
+  const key = `public:chat_messages:conv:${conversationId}`;
+  return subscribeShared(key, (emit) =>
+    supabase
+      .channel(key)
+      .on('postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => { if (payload.new) emit(payload.new); }
+      )
+      .subscribe()
+  )(onMessage);
+};
+
+/**
+ * Typing indicator qua Supabase Broadcast (ephemeral, không lưu DB).
+ */
+export const spBroadcastTyping = (() => {
+  const channels = new Map();
+
+  const getChannel = (conversationId) => {
+    if (!isSupabaseConfigured() || !supabase) return null;
+    const key = `typing:${conversationId}`;
+    if (!channels.has(key)) {
+      const ch = supabase.channel(key);
+      ch.subscribe();
+      channels.set(key, ch);
+    }
+    return channels.get(key);
+  };
+
+  return {
+    send: (conversationId, userId, role, isTyping) => {
+      const ch = getChannel(conversationId);
+      if (!ch) return;
+      ch.send({ type: 'broadcast', event: 'typing', payload: { userId, role, isTyping } });
+    },
+    subscribe: (conversationId, onTyping) => {
+      const ch = getChannel(conversationId);
+      if (!ch) return () => {};
+      ch.on('broadcast', { event: 'typing' }, ({ payload }) => onTyping(payload));
+      return () => {};
+    },
+  };
+})();

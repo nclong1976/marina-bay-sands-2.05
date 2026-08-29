@@ -1,6 +1,6 @@
 import { triggerAdminNotification } from "@/lib/adminNotifications";
 import { isSupabaseConfigured } from "./supabase";
-import { spSendChatMessage, spSubscribeChat, spFetchUserChatMessages, spFetchChatMessages } from "./supabaseService";
+import { spSendChatMessage, spSubscribeChat, spFetchUserChatMessages, spFetchChatMessages, spSendChatMessageV2 } from "./supabaseService";
 import { emitSocketEvent } from "./socket";
 import { queryClientInstance } from "./query-client";
 
@@ -254,3 +254,29 @@ export const subscribeChat = (cb) => {
     unsubSupabase();
   };
 };
+
+// ─── v2: Gửi tin nhắn theo Conversation (tích hợp với support_conversations) ─────
+export const addChatMessageV2 = ({
+  userId, userEmail, userName, senderRole, body, conversationId, isSecret = false,
+}) => {
+  // Vẫn ghi vào local store để backward-compatible
+  const localMsg = addChatMessage({
+    userId, userEmail, userName, senderRole, body, isSecret,
+  });
+
+  // Đồng thời gửi lên Supabase kèm conversation_id
+  if (isSupabaseConfigured() && conversationId) {
+    spSendChatMessageV2({
+      id: localMsg.id,
+      userId,
+      username: userName || userEmail || 'User',
+      message: body || '',
+      senderRole: senderRole || 'user',
+      conversationId,
+      isSecret: false,
+    }).catch(() => {});
+  }
+
+  return localMsg;
+};
+
