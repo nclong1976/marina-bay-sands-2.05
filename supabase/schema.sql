@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.users_profile (
     email TEXT,
     full_name TEXT,
     password_hash TEXT,
-    role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin', 'super_admin')),
     balance NUMERIC(14, 2) DEFAULT 0.00 CHECK (balance >= 0),
     pay_password TEXT,
     locked BOOLEAN DEFAULT FALSE,

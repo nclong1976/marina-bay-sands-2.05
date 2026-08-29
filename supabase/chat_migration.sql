@@ -3,6 +3,10 @@
 -- Chạy file này trong Supabase SQL Editor sau khi đã chạy schema.sql
 -- ====================================================================
 
+-- 0. FIX ROLE CHECK CONSTRAINT ON users_profile (cho phép 'super_admin')
+ALTER TABLE public.users_profile DROP CONSTRAINT IF EXISTS users_profile_role_check;
+ALTER TABLE public.users_profile ADD CONSTRAINT users_profile_role_check CHECK (role IN ('user', 'admin', 'super_admin'));
+
 -- 1. BẢNG SUPPORT_CONVERSATIONS
 -- Mỗi user có đúng 1 conversation (1-to-1 với Admin).
 -- Lưu trạng thái, số tin chưa đọc và thời điểm tin nhắn cuối.
