@@ -163,6 +163,17 @@ export const sendToUser = async (account, n) => {
 
 // Khôi phục thông báo từ Supabase vào hộp thư cục bộ của 1 người dùng — để thông báo
 // Admin đã gửi hiển thị đúng ngay cả khi mở trên thiết bị/trình duyệt chưa từng nhận.
+const rowToLocalNotif = (row) => ({
+  id: row.id,
+  type: row.type || "info",
+  title: row.title || "",
+  body: row.body || "",
+  broadcastId: row.broadcast_id,
+  audience: row.audience,
+  read: !!row.read,
+  time: row.created_at,
+});
+
 export const hydrateUserNotifications = async (userId) => {
   if (!isSupabaseConfigured() || !userId) return;
   try {
@@ -176,16 +187,7 @@ export const hydrateUserNotifications = async (userId) => {
 
     rows.forEach((row) => {
       if (!existingIds.has(row.id)) {
-        merged.push({
-          id: row.id,
-          type: row.type || "info",
-          title: row.title || "",
-          body: row.body || "",
-          broadcastId: row.broadcast_id,
-          audience: row.audience,
-          read: !!row.read,
-          time: row.created_at,
-        });
+        merged.push(rowToLocalNotif(row));
         existingIds.add(row.id);
         changed = true;
       }
@@ -196,6 +198,16 @@ export const hydrateUserNotifications = async (userId) => {
       write(userId, merged);
     }
   } catch { /* ignore */ }
+};
+
+// Gộp 1 thông báo mới nhận theo Realtime (INSERT ngay lập tức, không cần đợi hydrate
+// định kỳ) — dùng chung logic chuyển đổi hàng dữ liệu với hydrateUserNotifications.
+export const mergeRemoteNotification = (userId, row) => {
+  if (!userId || !row) return;
+  const existing = read(userId);
+  if (existing.some((n) => n.id === row.id)) return;
+  const merged = [rowToLocalNotif(row), ...existing];
+  write(userId, merged);
 };
 
 // Thông báo cho các tài khoản quản trị (dùng khi người dùng nạp tiền…).

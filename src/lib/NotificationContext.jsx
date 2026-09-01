@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { useAuth } from "@/lib/AuthContext";
 import * as notif from "@/lib/localNotifications";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { spSubscribeUserNotifications } from "@/lib/supabaseService";
 
 const NotificationContext = createContext(null);
 
@@ -48,10 +49,18 @@ export function NotificationProvider({ children }) {
     // buộc để thông báo thật sự tới được máy người dùng (trước đây Admin chỉ ghi vào
     // localStorage của chính máy Admin nên người dùng không bao giờ nhận được).
     let pollTimer;
+    let unsubRealtime;
     if (isSupabaseConfigured()) {
       const pullNotifs = () => notif.hydrateUserNotifications(userId).then(refreshNotifs);
       pullNotifs();
+      // Lưới an toàn phòng khi kết nối realtime bên dưới rớt/chưa kịp kết nối.
       pollTimer = setInterval(pullNotifs, 5000);
+
+      // Đồng bộ THẬT theo thời gian thực: thông báo Admin gửi tới NGAY, không cần đợi
+      // vòng poll 5s tiếp theo.
+      unsubRealtime = spSubscribeUserNotifications(userId, (row) => {
+        notif.mergeRemoteNotification(userId, row);
+      });
     }
 
     return () => {
@@ -60,6 +69,7 @@ export function NotificationProvider({ children }) {
       window.removeEventListener("storage", onStorage);
       clearInterval(timer);
       if (pollTimer) clearInterval(pollTimer);
+      if (unsubRealtime) unsubRealtime();
     };
   }, [userId, refreshNotifs]);
 

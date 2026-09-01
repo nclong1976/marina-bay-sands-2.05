@@ -37,6 +37,38 @@ const subscribeShared = (key, createChannel) => (onMessage) => {
   };
 };
 
+// ── Storage (bucket "app-assets") ───────────────────────────
+// Bucket công khai duy nhất cho mọi file admin tải lên (banner ảnh/video, ảnh nền sảnh
+// game...) — thay thế Base44 UploadFile cũ (đã lỗi thời, không có backend thật, luôn 404)
+// vốn khiến admin không tải được ảnh và phải rơi vào phương án dự phòng Data URL (nhồi cả
+// file base64 vào localStorage/app_settings, rất nặng và không đồng bộ tốt qua Realtime).
+const STORAGE_BUCKET = 'app-assets';
+
+/**
+ * Tải 1 file lên Supabase Storage, trả về URL công khai (public URL).
+ * `folder` giúp phân loại file theo khu vực sử dụng (banners/games/...).
+ * Trả về null nếu Supabase chưa cấu hình hoặc upload thất bại — nơi gọi tự lo fallback.
+ */
+export const spUploadFile = async (file, folder = 'misc') => {
+  if (!isSupabaseConfigured() || !file) return null;
+
+  const ext = (file.name?.split('.').pop() || 'bin').toLowerCase();
+  const safeExt = /^[a-z0-9]+$/.test(ext) ? ext : 'bin';
+  const path = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || undefined });
+
+  if (error) {
+    console.error('Supabase storage upload error:', error);
+    return null;
+  }
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return data?.publicUrl || null;
+};
+
 /**
  * Register user in Supabase CSDL (users_profile table)
  */
@@ -102,7 +134,16 @@ export const spLoginUser = async ({ account, password }) => {
     throw new Error('Tài khoản không tồn tại trên Supabase');
   }
 
-  if (user.password_hash !== password) {
+  // password_hash có thể là plaintext (tài khoản cũ) hoặc bcrypt (được trigger
+  // hash_user_secrets tự hash khi insert/update) — dùng RPC verify_login vì nó
+  // xử lý đúng cả hai định dạng bằng crypt(), so sánh chuỗi thô ở đây sẽ luôn
+  // thất bại với mật khẩu đã bị hash.
+  const { data: verified, error: verifyError } = await supabase.rpc('verify_login', {
+    p_account: acc,
+    p_password: password,
+  });
+
+  if (verifyError || !verified || verified.length === 0) {
     throw new Error('Mật khẩu không chính xác');
   }
 
@@ -478,6 +519,23 @@ export const spListAllWithdrawRequests = async (limit = 500) => {
 };
 
 /**
+ * Realtime: báo cho Admin ngay khi có đơn rút tiền mới/được cập nhật — để hàng đợi
+ * duyệt rút tiền tự hiện đơn mới dù Admin đang mở trên thiết bị/tab nào, không cần
+ * bấm "Tải lại" thủ công.
+ */
+export const spSubscribeAllWithdrawRequests = subscribeShared(
+  'public:withdraw_requests',
+  (emit) =>
+    supabase
+      .channel('public:withdraw_requests')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'withdraw_requests' },
+        (payload) => emit(payload)
+      )
+      .subscribe()
+);
+
+/**
  * Admin: duyệt/từ chối đơn rút tiền — cập nhật trạng thái trên Supabase để mọi thiết bị
  * (kể cả thiết bị của người dùng gửi đơn) thấy đúng kết quả tức thì.
  */
@@ -632,3 +690,245 @@ export const spFetchUserNotifications = async (userId, limit = 100) => {
   if (error) return null;
   return data || [];
 };
+
+/**
+ * Realtime: đẩy thông báo mới tới đúng người dùng NGAY khi Admin gửi, thay vì đợi
+ * vòng poll 5s (hydrateUserNotifications) tiếp theo trong NotificationContext.jsx.
+ */
+export const spSubscribeUserNotifications = (userId, onNewNotification) => {
+  if (!isSupabaseConfigured() || !supabase || !userId) return () => {};
+
+  return subscribeShared(`public:notifications:${userId}`, (emit) =>
+    supabase
+      .channel(`public:notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.new) emit(payload.new);
+        }
+      )
+      .subscribe()
+  )(onNewNotification);
+};
+
+// ====================================================================
+// LIVE CHAT CSKH — v2 (Conversations + Read Receipts + Typing)
+// ====================================================================
+
+/**
+ * Lấy hoặc tạo mới conversation cho 1 user (1 user = 1 conversation).
+ */
+export const spGetOrCreateConversation = async (userId) => {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  const { data: existing } = await supabase
+    .from('support_conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const newConv = {
+    id: 'conv_' + userId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40),
+    user_id: userId,
+    status: 'open',
+    unread_admin: 0,
+    unread_user: 0,
+    last_message_at: new Date().toISOString(),
+    last_message_body: '',
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('support_conversations')
+    .insert([newConv])
+    .select()
+    .single();
+
+  if (error) {
+    // Race condition: thử lấy lại
+    const { data: retry } = await supabase
+      .from('support_conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    return retry;
+  }
+  return data;
+};
+
+/**
+ * Admin: lấy tất cả conversations, sort theo tin nhắn mới nhất.
+ */
+export const spFetchAllConversations = async () => {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await supabase
+    .from('support_conversations')
+    .select('*, users_profile:user_id(id, account, full_name, email, role)')
+    .order('last_message_at', { ascending: false });
+
+  if (error) { console.error('spFetchAllConversations:', error); return []; }
+  return data || [];
+};
+
+/**
+ * Lấy lịch sử tin nhắn của 1 conversation.
+ */
+export const spFetchConversationMessages = async (conversationId, limit = 200) => {
+  if (!isSupabaseConfigured() || !conversationId) return [];
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+
+  if (error) { console.error('spFetchConversationMessages:', error); return []; }
+  return data || [];
+};
+
+/**
+ * Gửi tin nhắn kèm conversation_id (v2).
+ * DB Trigger sẽ tự cập nhật last_message_at và unread counts.
+ */
+export const spSendChatMessageV2 = async (msg) => {
+  if (!isSupabaseConfigured()) return null;
+
+  const newMsg = {
+    id: msg.id || 'msg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    user_id: msg.userId || 'guest',
+    username: msg.username || 'Khách',
+    message: msg.message || msg.text || '',
+    avatar: msg.avatar || '',
+    sender_role: msg.senderRole || 'user',
+    is_secret: !!msg.isSecret,
+    conversation_id: msg.conversationId || null,
+    image_url: msg.imageUrl || null,
+    read_by_admin: msg.senderRole === 'admin' || msg.senderRole === 'super_admin',
+    read_by_user: msg.senderRole === 'user',
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .insert([newMsg])
+    .select()
+    .single();
+
+  if (error) console.error('spSendChatMessageV2:', error);
+  return data;
+};
+
+/**
+ * Đánh dấu đã đọc tất cả tin nhắn trong conversation.
+ * role = 'admin'|'super_admin' → reset unread_admin=0
+ * role = 'user' → reset unread_user=0
+ */
+export const spMarkConversationRead = async (conversationId, role = 'user') => {
+  if (!isSupabaseConfigured() || !conversationId) return;
+
+  const isAdmin = role === 'admin' || role === 'super_admin';
+  const msgPatch = isAdmin ? { read_by_admin: true } : { read_by_user: true };
+  const convPatch = isAdmin ? { unread_admin: 0 } : { unread_user: 0 };
+
+  await supabase
+    .from('chat_messages')
+    .update(msgPatch)
+    .eq('conversation_id', conversationId)
+    .eq(isAdmin ? 'read_by_admin' : 'read_by_user', false);
+
+  await supabase
+    .from('support_conversations')
+    .update(convPatch)
+    .eq('id', conversationId);
+};
+
+/**
+ * Xóa 1 tin nhắn (Super Admin thu hồi) — xóa thẳng trên Supabase để biến mất khỏi
+ * MỌI thiết bị đang xem hội thoại này (admin khác + chính người dùng), không chỉ
+ * riêng trình duyệt của người bấm xóa.
+ */
+export const spDeleteChatMessage = async (msgId) => {
+  if (!isSupabaseConfigured() || !msgId) return false;
+  const { error } = await supabase.from('chat_messages').delete().eq('id', msgId);
+  if (error) { console.error('spDeleteChatMessage:', error); return false; }
+  return true;
+};
+
+/**
+ * Realtime: lắng nghe thay đổi danh sách conversations (Admin).
+ */
+export const spSubscribeConversations = subscribeShared(
+  'public:support_conversations',
+  (emit) =>
+    supabase
+      .channel('public:support_conversations')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'support_conversations' },
+        (payload) => { if (payload.new) emit(payload.new); }
+      )
+      .subscribe()
+);
+
+/**
+ * Realtime: lắng nghe tin nhắn mới HOẶC bị xóa trong 1 conversation cụ thể — báo
+ * `{ eventType: 'INSERT'|'DELETE', row }` để nơi gọi biết thêm hay bớt tin nhắn khỏi
+ * danh sách, giúp việc xóa tin nhắn (thu hồi) cũng phản ánh ngay trên mọi thiết bị.
+ */
+export const spSubscribeConversationMessages = (conversationId, onChange) => {
+  if (!isSupabaseConfigured() || !supabase || !conversationId) return () => {};
+  const key = `public:chat_messages:conv:${conversationId}`;
+  return subscribeShared(key, (emit) =>
+    supabase
+      .channel(key)
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+          if (row) emit({ eventType: payload.eventType, row });
+        }
+      )
+      .subscribe()
+  )(onChange);
+};
+
+/**
+ * Typing indicator qua Supabase Broadcast (ephemeral, không lưu DB).
+ */
+export const spBroadcastTyping = (() => {
+  const channels = new Map();
+
+  const getChannel = (conversationId) => {
+    if (!isSupabaseConfigured() || !supabase) return null;
+    const key = `typing:${conversationId}`;
+    if (!channels.has(key)) {
+      const ch = supabase.channel(key);
+      ch.subscribe();
+      channels.set(key, ch);
+    }
+    return channels.get(key);
+  };
+
+  return {
+    send: (conversationId, userId, role, isTyping) => {
+      const ch = getChannel(conversationId);
+      if (!ch) return;
+      ch.send({ type: 'broadcast', event: 'typing', payload: { userId, role, isTyping } });
+    },
+    subscribe: (conversationId, onTyping) => {
+      const ch = getChannel(conversationId);
+      if (!ch) return () => {};
+      ch.on('broadcast', { event: 'typing' }, ({ payload }) => onTyping(payload));
+      return () => {};
+    },
+  };
+})();

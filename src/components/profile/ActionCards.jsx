@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 
-export default function ActionCards({ onSupport, onDeposit, onWithdraw }) {
+export default function ActionCards({ onSupport, onDeposit, onWithdraw, unreadSupport = 0 }) {
   return (
     <div className="px-4 w-full flex flex-col gap-4.5 mt-4.5 box-border">
       {/* 1. Hỗ Trợ Trực Tuyến */}
@@ -29,6 +29,11 @@ export default function ActionCards({ onSupport, onDeposit, onWithdraw }) {
             CSKH 24/7 · Nhấn để chat ngay
           </p>
         </div>
+        {unreadSupport > 0 && (
+          <span className="absolute top-3 right-3 z-20 min-w-[22px] h-[22px] px-1.5 flex items-center justify-center text-[11px] font-bold text-white bg-red-500 rounded-full border-2 border-[#121020] animate-bounce">
+            {unreadSupport > 99 ? "99+" : unreadSupport}
+          </span>
+        )}
       </motion.div>
 
       {/* 2. Nạp Tiền */}

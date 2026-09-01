@@ -2,7 +2,7 @@
 // do Admin điều khiển trong mục Cài Đặt — đồng bộ qua Supabase để áp dụng đúng trên
 // mọi thiết bị người dùng, không chỉ lưu trong localStorage riêng của máy Admin.
 import { isSupabaseConfigured } from "./supabase";
-import { spGetAppSetting, spSetAppSetting } from "./supabaseService";
+import { spGetAppSetting, spSetAppSetting, spSubscribeAppSetting } from "./supabaseService";
 
 const STORAGE_KEY = "sands_settings";
 const SETTING_KEY = "site_settings";
@@ -78,17 +78,20 @@ export const subscribeSiteSettings = (cb) => {
   return () => listeners.delete(cb);
 };
 
+const applyRemoteSiteSettings = (value) => {
+  if (!value) return;
+  const current = getSiteSettings();
+  const merged = { ...DEFAULT_SITE_SETTINGS, ...value };
+  if (JSON.stringify(current) !== JSON.stringify(merged)) {
+    saveSiteSettings(merged, true);
+  }
+};
+
 const pullSiteSettingsFromSupabase = async () => {
   if (!isSupabaseConfigured()) return;
   try {
     const row = await spGetAppSetting(SETTING_KEY);
-    if (row && row.value) {
-      const current = getSiteSettings();
-      const merged = { ...DEFAULT_SITE_SETTINGS, ...row.value };
-      if (JSON.stringify(current) !== JSON.stringify(merged)) {
-        saveSiteSettings(merged, true);
-      }
-    }
+    applyRemoteSiteSettings(row?.value);
   } catch {
     /* ignore */
   }
@@ -96,5 +99,11 @@ const pullSiteSettingsFromSupabase = async () => {
 
 if (typeof window !== "undefined") {
   pullSiteSettingsFromSupabase();
+  // Lưới an toàn phòng khi kết nối realtime bên dưới rớt/chưa kịp kết nối.
   setInterval(pullSiteSettingsFromSupabase, 5000);
+
+  // Đồng bộ THẬT theo thời gian thực: đẩy thay đổi (thông báo trang chủ, bảo trì,
+  // tỷ lệ quy đổi...) tới mọi thiết bị người dùng NGAY khi Admin lưu, không cần đợi
+  // vòng poll 5s tiếp theo.
+  spSubscribeAppSetting(SETTING_KEY, (row) => applyRemoteSiteSettings(row?.value));
 }

@@ -13,7 +13,16 @@ export default function Splash() {
   const { isAuthenticated, authChecked } = useAuth();
 
   useEffect(() => {
-    if (authChecked && isAuthenticated && !location.state?.allowVideoView) {
+    if (!authChecked) return;
+    // Ứng dụng chỉ có 2 luồng: người dùng (sau đăng nhập) và admin — trang mở đầu
+    // (video giới thiệu) không phải một luồng độc lập, chỉ là màn hình phụ được xem
+    // từ trong ứng dụng (tab "Video" ở BottomNav, có allowVideoView). Khách chưa đăng
+    // nhập truy cập "/" trực tiếp phải vào thẳng /login, không được xem trước.
+    if (!isAuthenticated) {
+      navigate("/login", { replace: true });
+      return;
+    }
+    if (!location.state?.allowVideoView) {
       navigate("/dashboard", { replace: true });
     }
   }, [authChecked, isAuthenticated, navigate, location.state]);

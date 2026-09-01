@@ -10,6 +10,7 @@ import Notifications from "./modules/Notifications";
 import Settings from "./modules/Settings";
 import Chat from "./modules/Chat";
 import Banners from "./modules/Banners";
+import { useAdminChat } from "@/hooks/useAdminChat";
 
 const MODULES = {
   overview: Overview,
@@ -28,12 +29,15 @@ export default function AdminApp() {
   const [active, setActive] = useState("overview");
   const Mod = MODULES[active] || Overview;
 
+  // Lấy tổng unread từ conversations — hiển thị badge Bell trong AdminShell header
+  const { totalUnread } = useAdminChat();
+
   const handleLogout = () => {
     logout("/login");
   };
 
   return (
-    <AdminShell active={active} onNavigate={setActive} user={user} onLogout={handleLogout} unread={0}>
+    <AdminShell active={active} onNavigate={setActive} user={user} onLogout={handleLogout} unread={totalUnread}>
       <Mod />
     </AdminShell>
   );

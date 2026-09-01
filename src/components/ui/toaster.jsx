@@ -13,7 +13,9 @@ export function Toaster() {
   const { toasts, dismiss } = useToast();
   return (
     <div
-      className="fixed left-0 right-0 z-[100] px-3 flex flex-col gap-2 sm:inset-x-auto sm:right-3 sm:max-w-[420px]"
+      // z-[10060]: phải cao hơn modal (z-[10010]) và khung chat nổi (z-[9997]) — thông báo
+      // hệ thống (thành công/lỗi) không được phép bị che khuất bởi bất kỳ lớp nào khác.
+      className="fixed left-0 right-0 z-[10060] px-3 flex flex-col gap-2 sm:inset-x-auto sm:right-3 sm:max-w-[420px]"
       style={{ bottom: "calc(60px + 12px)" }}
     >
       <AnimatePresence>

@@ -4,7 +4,7 @@ import NotificationBell from "@/components/NotificationBell";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserData } from "@/lib/userData";
 
-export default function HomeHeader({ onChat, onRefresh }) {
+export default function HomeHeader({ onChat, onRefresh, unreadSupport = 0 }) {
   const { user } = useAuth();
   const { data, refresh } = useUserData(user?.id);
   const balance = data?.balance ?? 0;
@@ -35,8 +35,13 @@ export default function HomeHeader({ onChat, onRefresh }) {
 
       <div className="relative z-20 flex items-center gap-1">
         <NotificationBell iconColor="text-[#7f7161]" />
-        <button onClick={onChat} aria-label="Hỗ trợ" className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-[#7f7161] transition-colors">
+        <button onClick={onChat} aria-label="Hỗ trợ" className="relative p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-[#7f7161] transition-colors">
           <Headphones className="w-4 h-4" />
+          {unreadSupport > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full border border-[#0A0E1A]">
+              {unreadSupport > 9 ? "9+" : unreadSupport}
+            </span>
+          )}
         </button>
       </div>
     </header>
