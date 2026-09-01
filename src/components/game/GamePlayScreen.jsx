@@ -5,6 +5,7 @@ import { getGameConfig, CHIPS, computeDrawLabels } from "./gameConfig";
 import { getGameConfig as getStoreConfig, subscribeGameStore, getEffectiveGameOdds } from "@/lib/gameStore";
 import { getTier } from "@/components/lobby/lobbyData";
 import Ball from "./Ball";
+import CasinoChip from "./CasinoChip";
 import NotificationBell from "@/components/NotificationBell";
 import { useNotifications } from "@/lib/NotificationContext";
 import { ChevronLeft, History, Search, User, Lock, ChevronDown, ShieldAlert, CheckCircle2, X, Dices } from "lucide-react";
@@ -81,9 +82,15 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
   // Dynamic Odds Resolver
   const getEffectiveOdds = useCallback(
     (item) => {
+      const k = item.key || item.label;
+
+      // Ưu tiên cao nhất: tỷ lệ ô cược riêng lẻ Admin đã chỉnh qua Mô phỏng Bàn Chơi
+      // (khác với 4 nhóm gộp odds.tai_xiu/chan_le/hoa/cap_so bên dưới).
+      const cellOverride = liveStoreConfig?.cellOdds?.[k];
+      if (cellOverride !== undefined && cellOverride !== null) return `${cellOverride}`;
+
       const oddsObj = effectiveOddsState?.odds || liveStoreConfig?.odds;
       if (!oddsObj) return item.odds;
-      const k = item.key || item.label;
 
       if (k === "LON_NORMAL" || k === "NHO_NORMAL" || item.label === "Lớn" || item.label === "Nhỏ") {
         return oddsObj.tai_xiu !== undefined ? `${oddsObj.tai_xiu}` : item.odds;
@@ -99,7 +106,7 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
       }
       return item.odds;
     },
-    [effectiveOddsState?.odds, liveStoreConfig?.odds]
+    [effectiveOddsState?.odds, liveStoreConfig?.odds, liveStoreConfig?.cellOdds]
   );
 
   const [activeTabId, setActiveTabId] = useState(() => config.tabs[0]?.id || "");
@@ -559,15 +566,8 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
         </div>
 
         <div className="flex items-center justify-between gap-1.5 px-0.5 mt-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden py-1">
-          {tierChips.map((c, idx) => {
+          {tierChips.map((c) => {
             const isSelected = selectedChip === c;
-            const chipFilters = [
-              "hue-rotate(90deg) brightness(1.1)", // $10 Green
-              "hue-rotate(190deg) brightness(1.1)", // $50 Blue
-              "hue-rotate(320deg) brightness(1.25)", // $100 Red
-              "hue-rotate(40deg) brightness(1.3) contrast(1.1)", // $500 Gold/Orange
-            ];
-            const filterStyle = chipFilters[idx % chipFilters.length];
 
             return (
               <button
@@ -577,13 +577,9 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
                   isSelected ? "-translate-y-1 scale-110 z-10" : "hover:scale-105 opacity-90 hover:opacity-100"
                 }`}
               >
-                {/* User Requested Casino Chip PNG */}
-                <img
-                  src="https://www.pngkey.com/png/full/59-594730_the-design-is-outside-the-printing-area-world.png"
-                  alt={`Chip ${c}`}
-                  referrerPolicy="no-referrer"
-                  style={{ filter: filterStyle }}
-                  className={`absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform ${
+                <CasinoChip
+                  value={c}
+                  className={`absolute inset-0 w-full h-full pointer-events-none transition-transform ${
                     isSelected ? "drop-shadow-[0_0_12px_rgba(255,215,0,0.9)] scale-105" : "drop-shadow-[0_2px_5px_rgba(0,0,0,0.6)]"
                   }`}
                 />
@@ -612,12 +608,9 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
               selectedChip === "50%" ? "-translate-y-1 scale-110 z-10" : "hover:scale-105 opacity-90 hover:opacity-100"
             }`}
           >
-            <img
-              src="https://www.pngkey.com/png/full/59-594730_the-design-is-outside-the-printing-area-world.png"
-              alt="Chip 50%"
-              referrerPolicy="no-referrer"
-              style={{ filter: "hue-rotate(280deg) brightness(1.3) saturate(1.4)" }}
-              className={`absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform ${
+            <CasinoChip
+              value="50%"
+              className={`absolute inset-0 w-full h-full pointer-events-none transition-transform ${
                 selectedChip === "50%" ? "drop-shadow-[0_0_12px_rgba(255,215,0,0.9)] scale-105" : "drop-shadow-[0_2px_5px_rgba(0,0,0,0.6)]"
               }`}
             />

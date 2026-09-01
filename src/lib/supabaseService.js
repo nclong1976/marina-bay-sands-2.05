@@ -37,6 +37,38 @@ const subscribeShared = (key, createChannel) => (onMessage) => {
   };
 };
 
+// ── Storage (bucket "app-assets") ───────────────────────────
+// Bucket công khai duy nhất cho mọi file admin tải lên (banner ảnh/video, ảnh nền sảnh
+// game...) — thay thế Base44 UploadFile cũ (đã lỗi thời, không có backend thật, luôn 404)
+// vốn khiến admin không tải được ảnh và phải rơi vào phương án dự phòng Data URL (nhồi cả
+// file base64 vào localStorage/app_settings, rất nặng và không đồng bộ tốt qua Realtime).
+const STORAGE_BUCKET = 'app-assets';
+
+/**
+ * Tải 1 file lên Supabase Storage, trả về URL công khai (public URL).
+ * `folder` giúp phân loại file theo khu vực sử dụng (banners/games/...).
+ * Trả về null nếu Supabase chưa cấu hình hoặc upload thất bại — nơi gọi tự lo fallback.
+ */
+export const spUploadFile = async (file, folder = 'misc') => {
+  if (!isSupabaseConfigured() || !file) return null;
+
+  const ext = (file.name?.split('.').pop() || 'bin').toLowerCase();
+  const safeExt = /^[a-z0-9]+$/.test(ext) ? ext : 'bin';
+  const path = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || undefined });
+
+  if (error) {
+    console.error('Supabase storage upload error:', error);
+    return null;
+  }
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return data?.publicUrl || null;
+};
+
 /**
  * Register user in Supabase CSDL (users_profile table)
  */
@@ -102,7 +134,16 @@ export const spLoginUser = async ({ account, password }) => {
     throw new Error('Tài khoản không tồn tại trên Supabase');
   }
 
-  if (user.password_hash !== password) {
+  // password_hash có thể là plaintext (tài khoản cũ) hoặc bcrypt (được trigger
+  // hash_user_secrets tự hash khi insert/update) — dùng RPC verify_login vì nó
+  // xử lý đúng cả hai định dạng bằng crypt(), so sánh chuỗi thô ở đây sẽ luôn
+  // thất bại với mật khẩu đã bị hash.
+  const { data: verified, error: verifyError } = await supabase.rpc('verify_login', {
+    p_account: acc,
+    p_password: password,
+  });
+
+  if (verifyError || !verified || verified.length === 0) {
     throw new Error('Mật khẩu không chính xác');
   }
 
@@ -631,6 +672,27 @@ export const spFetchUserNotifications = async (userId, limit = 100) => {
 
   if (error) return null;
   return data || [];
+};
+
+/**
+ * Realtime: đẩy thông báo mới tới đúng người dùng NGAY khi Admin gửi, thay vì đợi
+ * vòng poll 5s (hydrateUserNotifications) tiếp theo trong NotificationContext.jsx.
+ */
+export const spSubscribeUserNotifications = (userId, onNewNotification) => {
+  if (!isSupabaseConfigured() || !supabase || !userId) return () => {};
+
+  return subscribeShared(`public:notifications:${userId}`, (emit) =>
+    supabase
+      .channel(`public:notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          if (payload.new) emit(payload.new);
+        }
+      )
+      .subscribe()
+  )(onNewNotification);
 };
 
 // ====================================================================

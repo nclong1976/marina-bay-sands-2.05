@@ -5,7 +5,7 @@ import promoBannerImg from "@/assets/banner_khuyen_mai.jpg";
 import { emitSocketEvent } from "./socket";
 import { queryClientInstance } from "./query-client";
 import { isSupabaseConfigured } from "./supabase";
-import { spGetAppSetting, spSetAppSetting } from "./supabaseService";
+import { spGetAppSetting, spSetAppSetting, spSubscribeAppSetting } from "./supabaseService";
 
 const STORAGE_KEY = "sands_banner_config";
 const SETTING_KEY = "banner_config";
@@ -221,16 +221,19 @@ export const subscribeBannerConfig = (cb) => {
 
 // Kéo cấu hình banner mới nhất từ Supabase — khiến thay đổi banner của Admin thực sự
 // tới được mọi thiết bị người dùng, không chỉ riêng máy Admin.
+const applyRemoteBannerConfig = (value) => {
+  if (!value || !Array.isArray(value.banners)) return;
+  const current = getBannerConfig();
+  if (JSON.stringify(current) !== JSON.stringify(value)) {
+    saveBannerConfig(value, true);
+  }
+};
+
 const pullBannerConfigFromSupabase = async () => {
   if (!isSupabaseConfigured()) return;
   try {
     const row = await spGetAppSetting(SETTING_KEY);
-    if (row && row.value && Array.isArray(row.value.banners)) {
-      const current = getBannerConfig();
-      if (JSON.stringify(current) !== JSON.stringify(row.value)) {
-        saveBannerConfig(row.value, true);
-      }
-    }
+    applyRemoteBannerConfig(row?.value);
   } catch {
     /* ignore */
   }
@@ -238,7 +241,12 @@ const pullBannerConfigFromSupabase = async () => {
 
 if (typeof window !== "undefined") {
   pullBannerConfigFromSupabase();
+  // Lưới an toàn phòng khi kết nối realtime bên dưới rớt/chưa kịp kết nối.
   setInterval(pullBannerConfigFromSupabase, 5000);
+
+  // Đồng bộ THẬT theo thời gian thực: banner Admin vừa đổi/thêm/xoá tới mọi thiết bị
+  // người dùng NGAY, không cần đợi vòng poll 5s tiếp theo.
+  spSubscribeAppSetting(SETTING_KEY, (row) => applyRemoteBannerConfig(row?.value));
 }
 
 // Helper: Convert File to DataURL or Web URL

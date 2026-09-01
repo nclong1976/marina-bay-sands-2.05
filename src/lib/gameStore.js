@@ -3,7 +3,7 @@
 import { emitSocketEvent } from './socket';
 import { queryClientInstance } from './query-client';
 import { isSupabaseConfigured } from './supabase';
-import { spGetAppSetting, spSetAppSetting } from './supabaseService';
+import { spGetAppSetting, spSetAppSetting, spSubscribeAppSetting } from './supabaseService';
 
 const SETTING_KEY = 'game_configs';
 
@@ -279,19 +279,22 @@ export const saveGameConfigs = (configs, fromRemote = false) => {
   }
 };
 
-// Kéo cấu hình mới nhất từ Supabase và áp dụng cục bộ nếu khác với bản đang có —
-// đây là cơ chế khiến thay đổi của Admin (bật/tắt game, đổi tỷ lệ, bảo trì...) thực
-// sự tới được MỌI thiết bị người dùng, không chỉ riêng máy Admin.
+// Áp dụng cấu hình lấy từ Supabase (poll hoặc realtime push) vào bản cục bộ nếu khác với
+// bản đang có — đây là cơ chế khiến thay đổi của Admin (bật/tắt tỷ lệ 2.1, hẹn giờ khuyến
+// mãi, bảo trì...) thực sự tới được MỌI thiết bị người dùng, không chỉ riêng máy Admin.
+const applyRemoteGameConfigs = (value) => {
+  if (!value || Object.keys(value).length === 0) return;
+  const current = getGameConfigs();
+  if (JSON.stringify(current) !== JSON.stringify(value)) {
+    saveGameConfigs(value, true);
+  }
+};
+
 const pullGameConfigsFromSupabase = async () => {
   if (!isSupabaseConfigured()) return;
   try {
     const row = await spGetAppSetting(SETTING_KEY);
-    if (row && row.value && Object.keys(row.value).length > 0) {
-      const current = getGameConfigs();
-      if (JSON.stringify(current) !== JSON.stringify(row.value)) {
-        saveGameConfigs(row.value, true);
-      }
-    }
+    applyRemoteGameConfigs(row?.value);
   } catch {
     /* ignore */
   }
@@ -299,7 +302,13 @@ const pullGameConfigsFromSupabase = async () => {
 
 if (typeof window !== "undefined") {
   pullGameConfigsFromSupabase();
+  // Lưới an toàn: vẫn poll mỗi 5s phòng khi kết nối realtime bên dưới bị rớt/chưa kết nối
+  // kịp (ví dụ mất mạng tạm thời) — không phải cơ chế đồng bộ chính.
   setInterval(pullGameConfigsFromSupabase, 5000);
+
+  // Đồng bộ THẬT theo thời gian thực: đẩy thay đổi tới mọi thiết bị người dùng khác NGAY
+  // khi Admin bấm BẬT/TẮT hoặc kích hoạt Hẹn giờ, không cần đợi vòng poll 5s tiếp theo.
+  spSubscribeAppSetting(SETTING_KEY, (row) => applyRemoteGameConfigs(row?.value));
 }
 
 export const updateGameConfig = (gameId, patch, adminMeta = {}) => {
@@ -346,13 +355,13 @@ export const updateGameConfig = (gameId, patch, adminMeta = {}) => {
   return newConfig;
 };
 
-// ── Boost Mode (2.05 Odds Toggle & Fast Forward Trigger) ──────
+// ── Boost Mode (2.1 Odds Toggle & Fast Forward Trigger) ──────
 export const setGameBoostMode = (gameId, mode, adminMeta = {}) => {
   const configs = getGameConfigs();
   const oldConfig = configs[gameId] || getGameConfig(gameId);
 
   const targetOdds = mode === "ON"
-    ? { ...oldConfig.odds, tai_xiu: 2.05 }
+    ? { ...oldConfig.odds, tai_xiu: 2.1 }
     : { ...oldConfig.odds, tai_xiu: 1.98 };
 
   const patch = {
@@ -367,7 +376,7 @@ export const setGameBoostMode = (gameId, mode, adminMeta = {}) => {
   });
 
   if (mode === "ON") {
-    // Fast forward current round so new round starts immediately with 2.05 odds
+    // Fast forward current round so new round starts immediately with 2.1 odds
     triggerGameFastForward(gameId, 6);
   } else {
     clearFastForwardState(gameId);
@@ -554,6 +563,81 @@ export const getEffectiveGameOdds = (gameId, userId = null, userAccount = null, 
     activeRule: matchedRule,
     isBoosted: true,
   };
+};
+
+// ── Per-Cell Odds Override (Mô phỏng Bàn Chơi) ──────────────
+// Cho phép Admin chỉnh tỷ lệ trả thưởng của TỪNG Ô CƯỢC riêng lẻ trên bàn chơi thật
+// (vd "Cực Lớn", "Báo", số "7"...), khác với `odds` (chỉ gồm 4 nhóm gộp Tài/Xỉu, Chẵn/Lẻ,
+// Hòa, Cặp số). Lưu trong `config.cellOdds` — object key theo `item.key` trong gameConfig.js,
+// chỉ chứa các ô ĐÃ bị admin ghi đè (không có nghĩa là dùng nguyên `item.odds` tĩnh mặc định).
+export const getEffectiveCellOdds = (gameId, itemKey, fallbackOdds) => {
+  const config = getGameConfig(gameId);
+  const v = config.cellOdds?.[itemKey];
+  return v !== undefined && v !== null ? v : fallbackOdds;
+};
+
+export const updateCellOdds = (gameId, cellKey, cellLabel, value, adminMeta = {}) => {
+  const configs = getGameConfigs();
+  const oldConfig = configs[gameId] || getGameConfig(gameId);
+  const oldVal = oldConfig.cellOdds?.[cellKey];
+  const numVal = Number(value);
+  const newConfig = { ...oldConfig, cellOdds: { ...(oldConfig.cellOdds || {}), [cellKey]: numVal } };
+
+  if (oldVal !== numVal) {
+    addAuditLog({
+      adminId: adminMeta.adminId || "Admin",
+      ip: adminMeta.ip || "127.0.0.1",
+      gameId,
+      gameTitle: newConfig.title || gameId,
+      diffs: [{ field: `Tỷ lệ ô cược (${cellLabel || cellKey})`, old: `1:${oldVal ?? "mặc định"}`, new: `1:${numVal}` }],
+    });
+  }
+
+  const updatedConfigs = { ...configs, [gameId]: newConfig };
+  saveGameConfigs(updatedConfigs);
+  return newConfig;
+};
+
+export const resetCellOdds = (gameId, cellKey, cellLabel, adminMeta = {}) => {
+  const configs = getGameConfigs();
+  const oldConfig = configs[gameId] || getGameConfig(gameId);
+  if (!oldConfig.cellOdds || oldConfig.cellOdds[cellKey] === undefined) return oldConfig;
+
+  const newCellOdds = { ...oldConfig.cellOdds };
+  const oldVal = newCellOdds[cellKey];
+  delete newCellOdds[cellKey];
+  const newConfig = { ...oldConfig, cellOdds: newCellOdds };
+
+  addAuditLog({
+    adminId: adminMeta.adminId || "Admin",
+    ip: adminMeta.ip || "127.0.0.1",
+    gameId,
+    gameTitle: newConfig.title || gameId,
+    diffs: [{ field: `Tỷ lệ ô cược (${cellLabel || cellKey})`, old: `1:${oldVal}`, new: "Về mặc định" }],
+  });
+
+  const updatedConfigs = { ...configs, [gameId]: newConfig };
+  saveGameConfigs(updatedConfigs);
+  return newConfig;
+};
+
+export const resetAllCellOdds = (gameId, adminMeta = {}) => {
+  const configs = getGameConfigs();
+  const oldConfig = configs[gameId] || getGameConfig(gameId);
+  if (!oldConfig.cellOdds || Object.keys(oldConfig.cellOdds).length === 0) return oldConfig;
+
+  const newConfig = { ...oldConfig, cellOdds: {} };
+  addAuditLog({
+    adminId: adminMeta.adminId || "Admin",
+    ip: adminMeta.ip || "127.0.0.1",
+    gameId,
+    gameTitle: newConfig.title || gameId,
+    diffs: [{ field: "Tỷ lệ toàn bộ ô cược (Bàn chơi)", old: `${Object.keys(oldConfig.cellOdds).length} ô đã tuỳ chỉnh`, new: "Về mặc định toàn bộ" }],
+  });
+
+  const updatedConfigs = { ...configs, [gameId]: newConfig };
+  saveGameConfigs(updatedConfigs);
+  return newConfig;
 };
 
 /**

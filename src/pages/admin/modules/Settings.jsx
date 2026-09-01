@@ -7,6 +7,7 @@ import { Upload, Save } from "lucide-react";
 import { Panel, inputCls } from "../ui";
 import { getBannerConfig, saveBannerConfig, extractZipArchive, readFileAsDataUrl } from "@/lib/bannerStore";
 import { getSiteSettings, saveSiteSettings, subscribeSiteSettings } from "@/lib/siteSettingsStore";
+import { spUploadFile } from "@/lib/supabaseService";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -89,11 +90,11 @@ export default function Settings() {
 
     const isVid = f.type.startsWith("video") || f.name.match(/\.(mp4|webm|mov)$/i);
     setBannerType(isVid ? "video" : "image");
-    try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file: f });
+    const file_url = await spUploadFile(f, "banners");
+    if (file_url) {
       set("banner", file_url);
       toast({ title: `Đã tải ${isVid ? "video" : "ảnh"} banner` });
-    } catch {
+    } else {
       const localUrl = await readFileAsDataUrl(f);
       set("banner", localUrl);
       toast({ title: "Đã chọn file banner cục bộ" });

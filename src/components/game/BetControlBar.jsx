@@ -1,4 +1,5 @@
 import React from "react";
+import CasinoChip from "./CasinoChip";
 
 export default function BetControlBar({
   chips, selectedChip, onSelectChip, betAmount, setBetAmount,
@@ -31,15 +32,8 @@ export default function BetControlBar({
         </div>
 
         <div className="flex justify-between items-center px-4 gap-2">
-          {chips.map((c, idx) => {
+          {chips.map((c) => {
             const isSelected = selectedChip === c;
-            const chipFilters = [
-              "hue-rotate(90deg) brightness(1.1)",
-              "hue-rotate(190deg) brightness(1.1)",
-              "hue-rotate(320deg) brightness(1.25)",
-              "hue-rotate(40deg) brightness(1.3) contrast(1.1)",
-            ];
-            const filterStyle = chipFilters[idx % chipFilters.length];
 
             return (
               <button
@@ -49,12 +43,9 @@ export default function BetControlBar({
                   isSelected ? "scale-110 z-10" : ""
                 }`}
               >
-                <img
-                  src="https://www.pngkey.com/png/full/59-594730_the-design-is-outside-the-printing-area-world.png"
-                  alt={`Chip ${c}`}
-                  referrerPolicy="no-referrer"
-                  style={{ filter: filterStyle }}
-                  className={`absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform ${
+                <CasinoChip
+                  value={c}
+                  className={`absolute inset-0 w-full h-full pointer-events-none transition-transform ${
                     isSelected ? "drop-shadow-[0_0_14px_rgba(255,215,0,0.9)] scale-105" : "drop-shadow-[0_2px_5px_rgba(0,0,0,0.6)]"
                   }`}
                 />

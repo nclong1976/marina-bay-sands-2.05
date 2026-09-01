@@ -133,4 +133,4 @@ export const computeDrawLabels = (drawn, threshold) => {
   };
 };
 
-export const CHIPS = [1, 5, 10, 50, 100, 500];
+export const CHIPS = [50, 100, 500];
