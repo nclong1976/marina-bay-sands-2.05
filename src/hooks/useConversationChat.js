@@ -6,6 +6,7 @@ import {
   spMarkConversationRead,
   spSubscribeConversationMessages,
   spBroadcastTyping,
+  spUploadFile,
 } from '@/lib/supabaseService';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { emitSocketEvent } from '@/lib/socket';
@@ -15,7 +16,8 @@ import { emitSocketEvent } from '@/lib/socket';
  *
  * Cung cấp:
  * - messages: danh sách tin nhắn của conversation
- * - send(text): gửi tin nhắn
+ * - send(text): gửi tin nhắn văn bản
+ * - sendImage(file, caption): tải ảnh lên rồi gửi kèm chú thích (nếu có)
  * - conversation: metadata của conversation hiện tại
  * - adminIsTyping: admin đang gõ hay không
  * - isLoading: đang tải lịch sử
@@ -135,9 +137,11 @@ export function useConversationChat(user, isOpen = false) {
     };
   }, [conversation?.id]);
 
-  // Gửi tin nhắn
-  const send = useCallback(async (text) => {
-    if (!text?.trim() || !userId) return;
+  // Gửi tin nhắn (text và/hoặc ảnh — imageUrl đã upload sẵn lên Storage)
+  const sendMessage = useCallback(async (text, imageUrl) => {
+    const trimmed = (text || '').trim();
+    if (!trimmed && !imageUrl) return;
+    if (!userId) return;
     const convId = convIdRef.current;
 
     const msgId = 'msg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -145,7 +149,8 @@ export function useConversationChat(user, isOpen = false) {
       id: msgId,
       user_id: userId,
       username: userName,
-      message: text.trim(),
+      message: trimmed,
+      image_url: imageUrl || null,
       sender_role: 'user',
       conversation_id: convId,
       read_by_admin: false,
@@ -166,7 +171,8 @@ export function useConversationChat(user, isOpen = false) {
       id: msgId,
       userId,
       username: userName,
-      message: text.trim(),
+      message: trimmed,
+      imageUrl: imageUrl || null,
       senderRole: 'user',
       conversationId: convId,
     });
@@ -183,6 +189,16 @@ export function useConversationChat(user, isOpen = false) {
       userId,
     });
   }, [userId, userName]);
+
+  const send = useCallback((text) => sendMessage(text), [sendMessage]);
+
+  // Tải ảnh lên Storage rồi gửi kèm chú thích (nếu có)
+  const sendImage = useCallback(async (file, caption = '') => {
+    if (!file) return;
+    const imageUrl = await spUploadFile(file, 'chat');
+    if (!imageUrl) return;
+    await sendMessage(caption, imageUrl);
+  }, [sendMessage]);
 
   // Thông báo user đang gõ cho admin
   const userTypingTimer = useRef(null);
@@ -209,6 +225,7 @@ export function useConversationChat(user, isOpen = false) {
     adminIsTyping,
     unreadUser,
     send,
+    sendImage,
     notifyTyping,
   };
 }

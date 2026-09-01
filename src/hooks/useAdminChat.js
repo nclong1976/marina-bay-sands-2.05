@@ -8,6 +8,7 @@ import {
   spSubscribeConversations,
   spSubscribeConversationMessages,
   spBroadcastTyping,
+  spUploadFile,
 } from '@/lib/supabaseService';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { emitSocketEvent } from '@/lib/socket';
@@ -165,10 +166,11 @@ export function useAdminChat() {
     };
   }, []);
 
-  // ─── Gửi phản hồi từ Admin ────────────────────────────────────
-  const sendReply = useCallback(async (text, adminUser) => {
+  // ─── Gửi phản hồi từ Admin (text và/hoặc ảnh) ─────────────────
+  const sendReplyMessage = useCallback(async (text, adminUser, imageUrl) => {
     const convId = activeConvIdRef.current;
-    if (!text?.trim() || !convId || !adminUser) return;
+    const trimmed = (text || '').trim();
+    if ((!trimmed && !imageUrl) || !convId || !adminUser) return;
 
     const conv = conversations.find((c) => c.id === convId);
     if (!conv) return;
@@ -182,7 +184,8 @@ export function useAdminChat() {
       id: msgId,
       user_id: targetUserId,
       username: adminName,
-      message: text.trim(),
+      message: trimmed,
+      image_url: imageUrl || null,
       sender_role: adminRole,
       conversation_id: convId,
       read_by_admin: true,
@@ -201,7 +204,8 @@ export function useAdminChat() {
       id: msgId,
       userId: targetUserId,
       username: adminName,
-      message: text.trim(),
+      message: trimmed,
+      imageUrl: imageUrl || null,
       senderRole: adminRole,
       conversationId: convId,
     });
@@ -217,6 +221,16 @@ export function useAdminChat() {
       userId: targetUserId,
     });
   }, [conversations]);
+
+  const sendReply = useCallback((text, adminUser) => sendReplyMessage(text, adminUser), [sendReplyMessage]);
+
+  // Tải ảnh lên Storage rồi gửi kèm chú thích (nếu có)
+  const sendReplyImage = useCallback(async (file, adminUser, caption = '') => {
+    if (!file) return;
+    const imageUrl = await spUploadFile(file, 'chat');
+    if (!imageUrl) return;
+    await sendReplyMessage(caption, adminUser, imageUrl);
+  }, [sendReplyMessage]);
 
   // ─── Xóa (thu hồi) 1 tin nhắn — Super Admin ──────────────────
   const deleteMessage = useCallback(async (msgId) => {
@@ -255,6 +269,7 @@ export function useAdminChat() {
     isLoadingConvs,
     isLoadingMsgs,
     sendReply,
+    sendReplyImage,
     deleteMessage,
     notifyTyping,
     totalUnread,

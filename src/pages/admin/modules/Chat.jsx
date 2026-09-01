@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Search, Ghost, Trash2, MessageSquare,
-  Loader2, RefreshCw, CheckCheck, Clock, ChevronDown
+  Loader2, RefreshCw, CheckCheck, Clock, ChevronDown, Paperclip, X
 } from 'lucide-react';
+
+const MAX_IMAGE_MB = 5;
 import { Panel, inputCls } from '../ui';
 import { useAuth } from '@/lib/AuthContext';
 import { useAdminChat } from '@/hooks/useAdminChat';
@@ -36,7 +38,7 @@ const TypingDots = ({ label = 'đang gõ...' }) => (
 );
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, isFromAdmin, onDelete, canDelete }) => {
+const MessageBubble = ({ msg, isFromAdmin, onDelete, canDelete, onViewImage }) => {
   const time = msg.created_at
     ? new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
     : '';
@@ -59,14 +61,30 @@ const MessageBubble = ({ msg, isFromAdmin, onDelete, canDelete }) => {
       <Avatar name={msg.username} role={msg.sender_role} />
 
       <div className={`max-w-[72%] flex flex-col ${isFromAdmin ? 'items-end' : 'items-start'}`}>
-        <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm
-          ${isFromAdmin
-            ? 'bg-gradient-to-br from-[#7033ff] to-[#4b00ff] text-white rounded-br-sm'
-            : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
-          }`}
-        >
-          {msg.message}
-        </div>
+        {msg.image_url && (
+          <button
+            type="button"
+            onClick={() => onViewImage?.(msg.image_url)}
+            className={`mb-1 block overflow-hidden rounded-2xl border border-white/10 ${isFromAdmin ? 'rounded-br-sm' : 'rounded-bl-sm'}`}
+          >
+            <img
+              src={msg.image_url}
+              alt="Ảnh đính kèm"
+              className="w-[220px] h-[170px] object-cover block"
+              loading="lazy"
+            />
+          </button>
+        )}
+        {msg.message && (
+          <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm
+            ${isFromAdmin
+              ? 'bg-gradient-to-br from-[#7033ff] to-[#4b00ff] text-white rounded-br-sm'
+              : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
+            }`}
+          >
+            {msg.message}
+          </div>
+        )}
         <div className={`flex items-center gap-1 mt-0.5 px-1 ${isFromAdmin ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-white/35">{time}</span>
           {isFromAdmin && (
@@ -152,6 +170,7 @@ export default function Chat() {
     isLoadingConvs,
     isLoadingMsgs,
     sendReply,
+    sendReplyImage,
     deleteMessage,
     notifyTyping,
     totalUnread,
@@ -161,9 +180,14 @@ export default function Chat() {
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl }
+  const [imageError, setImageError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [viewerImage, setViewerImage] = useState(null);
   const messagesEndRef = useRef(null);
   const scrollAreaRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
   // Scroll cuối khi có tin mới
@@ -177,21 +201,68 @@ export default function Chat() {
     setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
   };
 
-  // Chọn conversation
+  // Chọn conversation — dọn ảnh đang chờ gửi để tránh gửi nhầm sang khách khác
   const handleSelectConv = useCallback((convId) => {
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    setImageError('');
     setActiveConvId(convId, currentUser?.role);
   }, [setActiveConvId, currentUser?.role]);
 
-  // Gửi tin nhắn
+  // Gửi tin nhắn (text và/hoặc ảnh)
   const handleSend = useCallback(async () => {
-    if (!text.trim() || !activeConvId) return;
+    if ((!text.trim() && !pendingImage) || !activeConvId) return;
     const t = text;
+    const img = pendingImage;
     setText('');
     notifyTyping(false, currentUser);
     clearTimeout(typingTimeoutRef.current);
-    await sendReply(t, currentUser);
+
+    if (img) {
+      setIsUploading(true);
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      setPendingImage(null);
+      try {
+        await sendReplyImage(img.file, currentUser, t);
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      await sendReply(t, currentUser);
+    }
     inputRef.current?.focus();
-  }, [text, activeConvId, sendReply, notifyTyping, currentUser]);
+  }, [text, pendingImage, activeConvId, sendReply, sendReplyImage, notifyTyping, currentUser]);
+
+  // Chọn ảnh đính kèm — upload thật sự diễn ra khi bấm Gửi.
+  const handlePickImage = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImageError('');
+
+    if (!file.type.startsWith('image/')) {
+      setImageError('Chỉ hỗ trợ file ảnh');
+      return;
+    }
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setImageError(`Ảnh tối đa ${MAX_IMAGE_MB}MB`);
+      return;
+    }
+
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return { file, previewUrl: URL.createObjectURL(file) };
+    });
+  };
+
+  const removePendingImage = () => {
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+  };
 
   // Typing
   const handleInputChange = (e) => {
@@ -376,6 +447,7 @@ export default function Chat() {
                       isFromAdmin={isFromAdmin}
                       onDelete={handleDeleteMessage}
                       canDelete={isSuperAdmin}
+                      onViewImage={setViewerImage}
                     />
                   );
                 })}
@@ -423,8 +495,43 @@ export default function Chat() {
 
               {/* Input Footer */}
               <div className="px-3 py-3 border-t border-white/10 shrink-0">
+                {/* Xem trước ảnh sắp gửi */}
+                {pendingImage && (
+                  <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-2 py-2">
+                    <img src={pendingImage.previewUrl} alt="Xem trước" className="w-12 h-12 rounded-lg object-cover" />
+                    <span className="flex-1 text-xs text-white/50 truncate">{pendingImage.file.name}</span>
+                    <button
+                      onClick={removePendingImage}
+                      className="p-1 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                {imageError && (
+                  <p className="text-[11px] text-rose-400 mb-1.5 px-1">{imageError}</p>
+                )}
+
                 <div className="flex items-end gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2
                   focus-within:border-[#ffab40]/50 focus-within:ring-1 focus-within:ring-[#ffab40]/20 transition-all">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePickImage}
+                  />
+                  <button
+                    id="admin-chat-attach"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    title="Gửi ảnh"
+                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
+                      text-white/50 hover:text-[#ffab40] hover:bg-white/10
+                      disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Paperclip size={16} />
+                  </button>
                   <textarea
                     ref={inputRef}
                     id="admin-chat-input"
@@ -440,13 +547,13 @@ export default function Chat() {
                   <button
                     id="admin-chat-send"
                     onClick={handleSend}
-                    disabled={!text.trim()}
+                    disabled={(!text.trim() && !pendingImage) || isUploading}
                     className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0
                       bg-gradient-to-r from-[#ffab40] to-[#e67e22] text-white
                       disabled:opacity-40 disabled:cursor-not-allowed
                       hover:opacity-90 active:scale-95 transition-all shadow-md"
                   >
-                    <Send size={16} />
+                    {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                   </button>
                 </div>
               </div>
@@ -454,6 +561,27 @@ export default function Chat() {
           )}
         </Panel>
       </div>
+
+      {/* ── Xem ảnh cỡ lớn ─────────────────────────────────────── */}
+      {viewerImage && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/85 flex items-center justify-center p-6"
+          onClick={() => setViewerImage(null)}
+        >
+          <button
+            onClick={() => setViewerImage(null)}
+            className="absolute top-4 right-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <img
+            src={viewerImage}
+            alt="Ảnh đính kèm"
+            className="max-w-full max-h-full rounded-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -807,6 +807,7 @@ export const spSendChatMessageV2 = async (msg) => {
     sender_role: msg.senderRole || 'user',
     is_secret: !!msg.isSecret,
     conversation_id: msg.conversationId || null,
+    image_url: msg.imageUrl || null,
     read_by_admin: msg.senderRole === 'admin' || msg.senderRole === 'super_admin',
     read_by_user: msg.senderRole === 'user',
     created_at: new Date().toISOString(),

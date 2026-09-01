@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageSquare, X, Send, Loader2, ChevronDown, CheckCheck } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, ChevronDown, CheckCheck, Paperclip } from 'lucide-react';
 import { useConversationChat } from '@/hooks/useConversationChat';
 import { useAuth } from '@/lib/AuthContext';
+
+const MAX_IMAGE_MB = 5;
 
 // ─── Avatar helpers ──────────────────────────────────────────────────────────
 const UserAvatar = () => (
@@ -30,7 +32,7 @@ const TypingDots = () => (
 );
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, isOwn }) => {
+const MessageBubble = ({ msg, isOwn, onViewImage }) => {
   const time = msg.created_at
     ? new Date(msg.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
     : '';
@@ -39,15 +41,31 @@ const MessageBubble = ({ msg, isOwn }) => {
     <div className={`flex items-end gap-2 ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
       {!isOwn && <AdminAvatar />}
       <div className={`max-w-[78%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
-        <div
-          className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
-            isOwn
-              ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-sm'
-              : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
-          }`}
-        >
-          {msg.message}
-        </div>
+        {msg.image_url && (
+          <button
+            type="button"
+            onClick={() => onViewImage?.(msg.image_url)}
+            className={`mb-1 block overflow-hidden rounded-2xl border border-white/10 ${isOwn ? 'rounded-br-sm' : 'rounded-bl-sm'}`}
+          >
+            <img
+              src={msg.image_url}
+              alt="Ảnh đính kèm"
+              className="w-[200px] h-[160px] object-cover block"
+              loading="lazy"
+            />
+          </button>
+        )}
+        {msg.message && (
+          <div
+            className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm ${
+              isOwn
+                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-sm'
+                : 'bg-white/10 text-white rounded-bl-sm border border-white/10'
+            }`}
+          >
+            {msg.message}
+          </div>
+        )}
         <div className={`flex items-center gap-1 mt-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-white/35">{time}</span>
           {isOwn && (
@@ -71,12 +89,17 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
   const { user } = useAuth();
   const [text, setText] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl }
+  const [imageError, setImageError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [viewerImage, setViewerImage] = useState(null);
   const messagesEndRef = useRef(null);
   const scrollAreaRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  const { messages, isLoading, adminIsTyping, unreadUser, send, notifyTyping } =
+  const { messages, isLoading, adminIsTyping, unreadUser, send, sendImage, notifyTyping } =
     useConversationChat(user, open);
 
   // Báo số tin chưa đọc ra ngoài để nút "Hỗ Trợ Trực Tuyến" / icon tai nghe hiện badge
@@ -113,20 +136,62 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
   }, [notifyTyping]);
 
   const handleSend = useCallback(async () => {
-    if (!text.trim()) return;
+    if (!text.trim() && !pendingImage) return;
     const t = text;
+    const img = pendingImage;
     setText('');
     notifyTyping(false);
     clearTimeout(typingTimeoutRef.current);
-    await send(t);
+
+    if (img) {
+      setIsUploading(true);
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      setPendingImage(null);
+      try {
+        await sendImage(img.file, t);
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      await send(t);
+    }
     inputRef.current?.focus();
-  }, [text, send, notifyTyping]);
+  }, [text, pendingImage, send, sendImage, notifyTyping]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  // Chọn ảnh đính kèm — chỉ xem trước, upload thật sự diễn ra khi bấm Gửi.
+  const handlePickImage = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImageError('');
+
+    if (!file.type.startsWith('image/')) {
+      setImageError('Chỉ hỗ trợ file ảnh');
+      return;
+    }
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setImageError(`Ảnh tối đa ${MAX_IMAGE_MB}MB`);
+      return;
+    }
+
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return { file, previewUrl: URL.createObjectURL(file) };
+    });
+  };
+
+  const removePendingImage = () => {
+    setPendingImage((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
   };
 
   // Không hiện widget cho admin
@@ -202,7 +267,7 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
           {/* Message list */}
           {messages.map((msg) => {
             const isOwn = msg.sender_role === 'user';
-            return <MessageBubble key={msg.id} msg={msg} isOwn={isOwn} />;
+            return <MessageBubble key={msg.id} msg={msg} isOwn={isOwn} onViewImage={setViewerImage} />;
           })}
 
           {/* Admin typing indicator */}
@@ -233,8 +298,43 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
 
         {/* Input Area */}
         <div className="px-3 py-3 border-t border-white/10 shrink-0 bg-[#0f1225]/50 backdrop-blur-sm">
+          {/* Xem trước ảnh sắp gửi */}
+          {pendingImage && (
+            <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-2 py-2">
+              <img src={pendingImage.previewUrl} alt="Xem trước" className="w-12 h-12 rounded-lg object-cover" />
+              <span className="flex-1 text-xs text-white/50 truncate">{pendingImage.file.name}</span>
+              <button
+                onClick={removePendingImage}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          {imageError && (
+            <p className="text-[11px] text-rose-400 mb-1.5 px-1">{imageError}</p>
+          )}
+
           <div className="flex items-end gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2
             focus-within:border-amber-400/50 focus-within:ring-1 focus-within:ring-amber-400/20 transition-all">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePickImage}
+            />
+            <button
+              id="chat-widget-attach"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              title="Gửi ảnh"
+              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0
+                text-white/50 hover:text-amber-400 hover:bg-white/10
+                disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
             <textarea
               ref={inputRef}
               id="chat-widget-input"
@@ -250,13 +350,13 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
             <button
               id="chat-widget-send"
               onClick={handleSend}
-              disabled={!text.trim()}
+              disabled={(!text.trim() && !pendingImage) || isUploading}
               className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0
                 bg-gradient-to-br from-amber-400 to-orange-500
                 text-white disabled:opacity-40 disabled:cursor-not-allowed
                 hover:opacity-90 active:scale-95 transition-all shadow-md"
             >
-              <Send className="w-4 h-4" />
+              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
           </div>
           <p className="text-[10px] text-white/25 text-center mt-1.5">
@@ -264,6 +364,27 @@ export default function ChatWidget({ open, onClose, onUnreadChange }) {
           </p>
         </div>
       </div>
+
+      {/* ── Xem ảnh cỡ lớn ─────────────────────────────────────── */}
+      {viewerImage && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/85 flex items-center justify-center p-6"
+          onClick={() => setViewerImage(null)}
+        >
+          <button
+            onClick={() => setViewerImage(null)}
+            className="absolute top-4 right-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <img
+            src={viewerImage}
+            alt="Ảnh đính kèm"
+            className="max-w-full max-h-full rounded-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }
