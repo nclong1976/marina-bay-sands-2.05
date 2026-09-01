@@ -37,7 +37,9 @@ export default function NotificationBell({ iconColor = "text-white/85" }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="fixed right-4 top-14 z-[99999] w-[320px] sm:w-[350px] max-h-[440px] overflow-y-auto rounded-2xl bg-[#161936] border border-[#bd9c59]/55 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] [&::-webkit-scrollbar]:hidden"
+            // z-[9998]: cùng tầng "khung nổi" với chat hỗ trợ (z-[9997]) — thấp hơn modal
+            // (z-[10010]) để khi mở 1 modal (Rút tiền, Liên kết TK...) nó luôn hiện lên trên.
+            className="fixed right-4 top-14 z-[9998] w-[320px] sm:w-[350px] max-h-[440px] overflow-y-auto rounded-2xl bg-[#161936] border border-[#bd9c59]/55 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] [&::-webkit-scrollbar]:hidden"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 sticky top-0 bg-[#161936]/95 backdrop-blur-md z-10">
               <div className="flex items-center gap-2">

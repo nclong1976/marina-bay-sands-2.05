@@ -29,7 +29,7 @@ export function TextToaster() {
     return () => listeners.delete(l);
   }, []);
   return (
-    <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[120] flex flex-col items-center gap-1 pointer-events-none">
+    <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[10070] flex flex-col items-center gap-1 pointer-events-none">
       <AnimatePresence>
         {list.map((t) => (
           <motion.div
