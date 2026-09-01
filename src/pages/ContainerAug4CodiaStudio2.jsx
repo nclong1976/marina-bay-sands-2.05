@@ -45,6 +45,7 @@ export default function ContainerAug4CodiaStudio2() {
   const [openLink, setOpenLink] = useState(false);
   const [openWithdraw, setOpenWithdraw] = useState(false);
   const [openChat, setOpenChat] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
   const [openDeposit, setOpenDeposit] = useState(false);
 
   const balance = data.balance;
@@ -153,6 +154,7 @@ export default function ContainerAug4CodiaStudio2() {
             onSupport={() => setOpenChat(true)}
             onDeposit={handleDeposit}
             onWithdraw={() => setOpenWithdraw(true)}
+            unreadSupport={chatUnread}
           />
 
           <LogoutButton />
@@ -165,7 +167,7 @@ export default function ContainerAug4CodiaStudio2() {
       <BetHistoryModal open={openBet} onOpenChange={setOpenBet} bets={bets} />
       <TxHistoryModal open={!!txMode} onOpenChange={(v) => !v && setTxMode(null)} txs={txs} mode={txMode || "both"} />
       <LinkAccountModal open={openLink} onOpenChange={setOpenLink} onAdd={addLinked} linked={linked} />
-      <ChatWidget open={openChat} onClose={() => setOpenChat(false)} />
+      <ChatWidget open={openChat} onClose={() => setOpenChat(false)} onUnreadChange={setChatUnread} />
       <WithdrawModal
         open={openWithdraw}
         onOpenChange={setOpenWithdraw}

@@ -114,7 +114,7 @@ export function useAdminChat() {
       prev.map((c) => c.id === convId ? { ...c, unread_admin: 0 } : c)
     );
 
-    // Subscribe tin nhắn mới / bị xóa
+    // Subscribe tin nhắn mới / cập nhật (vd. đã đọc) / bị xóa
     unsubMsgsRef.current = spSubscribeConversationMessages(convId, ({ eventType, row }) => {
       if (activeConvIdRef.current !== convId) return;
 
@@ -125,11 +125,18 @@ export function useAdminChat() {
 
       const newMsg = row;
       setMessages((prev) => {
-        if (prev.some((m) => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
+        const idx = prev.findIndex((m) => m.id === newMsg.id);
+        if (idx === -1) return [...prev, newMsg];
+        // UPDATE (vd. read_by_user vừa chuyển true) — merge vào tin nhắn đã có để dấu
+        // ✓✓ "đã đọc" cập nhật ngay, không cần mở lại hội thoại.
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...newMsg };
+        return next;
       });
-      // Nếu user gửi → đánh dấu admin đã đọc
-      if (newMsg.sender_role === 'user') {
+
+      // Chỉ xử lý khi có tin nhắn MỚI (INSERT) từ user — tránh vòng lặp vô ích khi
+      // chính hành động đánh dấu đã đọc bên dưới lại tự phát sinh sự kiện UPDATE.
+      if (eventType === 'INSERT' && newMsg.sender_role === 'user') {
         spMarkConversationRead(convId, adminRole).catch(() => {});
         setConversations((prev) =>
           prev.map((c) => c.id === convId ? { ...c, unread_admin: 0 } : c)

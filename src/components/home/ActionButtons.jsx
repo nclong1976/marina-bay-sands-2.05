@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function ActionButtons({ onDeposit, onWithdraw, onHistory, onSupport, t }) {
+export default function ActionButtons({ onDeposit, onWithdraw, onHistory, onSupport, t, unreadSupport = 0 }) {
   const buttons = [
     {
       label: t("deposit"),
@@ -25,6 +25,7 @@ export default function ActionButtons({ onDeposit, onWithdraw, onHistory, onSupp
       bg: "https://media.base44.com/images/public/6a729d033f9d0f63f381a6c6/c1504c4b7_7f09c48e9_bc57ebbbcfcd5c80380def67ce2e84e13d56831b.png",
       color: "#dacfed",
       onClick: onSupport,
+      badge: unreadSupport,
     },
   ];
   return (
@@ -39,6 +40,11 @@ export default function ActionButtons({ onDeposit, onWithdraw, onHistory, onSupp
           <span className="relative z-10 text-figma-12 font-normal font-paragraph leading-figma-17" style={{ color: b.color }}>
             {b.label}
           </span>
+          {b.badge > 0 && (
+            <span className="absolute top-1 right-1.5 z-20 min-w-[16px] h-[16px] px-1 flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full border border-[#0A0E1A]">
+              {b.badge > 9 ? "9+" : b.badge}
+            </span>
+          )}
         </button>
       ))}
     </div>

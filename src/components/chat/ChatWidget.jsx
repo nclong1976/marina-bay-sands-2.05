@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageSquare, X, Send, Loader2, ChevronDown } from 'lucide-react';
+import { MessageSquare, X, Send, Loader2, ChevronDown, CheckCheck } from 'lucide-react';
 import { useConversationChat } from '@/hooks/useConversationChat';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -48,7 +48,14 @@ const MessageBubble = ({ msg, isOwn }) => {
         >
           {msg.message}
         </div>
-        <span className="text-[10px] text-white/35 mt-1 px-1">{time}</span>
+        <div className={`flex items-center gap-1 mt-1 px-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
+          <span className="text-[10px] text-white/35">{time}</span>
+          {isOwn && (
+            msg.read_by_admin
+              ? <CheckCheck className="w-3 h-3 text-indigo-400" />
+              : <CheckCheck className="w-3 h-3 text-white/25" />
+          )}
+        </div>
       </div>
       {isOwn && <UserAvatar />}
     </div>
@@ -60,7 +67,7 @@ const MessageBubble = ({ msg, isOwn }) => {
  * ChatWidget — Widget hỗ trợ trực tuyến nổi góc phải màn hình.
  * Dùng useConversationChat để kết nối Supabase Realtime.
  */
-export default function ChatWidget({ open, onClose }) {
+export default function ChatWidget({ open, onClose, onUnreadChange }) {
   const { user } = useAuth();
   const [text, setText] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -69,8 +76,14 @@ export default function ChatWidget({ open, onClose }) {
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  const { messages, isLoading, adminIsTyping, send, notifyTyping } =
-    useConversationChat(user);
+  const { messages, isLoading, adminIsTyping, unreadUser, send, notifyTyping } =
+    useConversationChat(user, open);
+
+  // Báo số tin chưa đọc ra ngoài để nút "Hỗ Trợ Trực Tuyến" / icon tai nghe hiện badge
+  // dù khung chat đang đóng.
+  useEffect(() => {
+    onUnreadChange?.(unreadUser);
+  }, [unreadUser, onUnreadChange]);
 
   // Scroll xuống cuối khi có tin mới
   useEffect(() => {

@@ -35,6 +35,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
   const [allGames, setAllGames] = useState(() => getCustomGames(GAMES));
 
   useEffect(() => {
@@ -203,7 +204,7 @@ export default function Home() {
 
       {/* Content Flow */}
       <div className="relative z-10 flex flex-col flex-1 pb-24">
-        <HomeHeader onChat={openChat} onRefresh={handleRefresh} />
+        <HomeHeader onChat={openChat} onRefresh={handleRefresh} unreadSupport={chatUnread} />
 
         {/* Dynamic Video & Image Banner Carousel */}
         <BannerCarousel onBannerClick={handleDeposit} />
@@ -214,6 +215,7 @@ export default function Home() {
           onWithdraw={handleWithdraw}
           onHistory={() => setOpenBet(true)}
           onSupport={openChat}
+          unreadSupport={chatUnread}
         />
 
         {/* Game Lobby Section */}
@@ -230,7 +232,7 @@ export default function Home() {
       </div>
 
       {/* Supabase Realtime Chat Widget (hidden for admin) */}
-      <ChatWidget open={chatOpen} onClose={() => setChatOpen(false)} />
+      <ChatWidget open={chatOpen} onClose={() => setChatOpen(false)} onUnreadChange={setChatUnread} />
       <BottomNav />
       <WithdrawModal
         open={openWithdraw}

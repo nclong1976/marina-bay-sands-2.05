@@ -20,8 +20,14 @@ import { emitSocketEvent } from '@/lib/socket';
  * - adminIsTyping: admin đang gõ hay không
  * - isLoading: đang tải lịch sử
  * - notifyTyping(bool): báo cho admin biết user đang gõ
+ *
+ * `isOpen` cho hook biết khung chat có đang thật sự MỞ trên màn hình hay không —
+ * chỉ đánh dấu "đã đọc" (và reset badge chưa đọc) khi user thật sự đang nhìn thấy
+ * tin nhắn. Widget luôn được mount sẵn (để có thể hiện badge chưa đọc trên nút mở
+ * chat), nên nếu đánh dấu đã đọc bất kể có mở hay không, badge sẽ luôn = 0 dù admin
+ * vừa nhắn tin và user chưa từng mở khung chat để xem.
  */
-export function useConversationChat(user) {
+export function useConversationChat(user, isOpen = false) {
   const userId = user?.id;
   const userName = user?.full_name || user?.account || 'Khách';
 
@@ -32,6 +38,8 @@ export function useConversationChat(user) {
 
   const adminTypingTimer = useRef(null);
   const convIdRef = useRef(null);
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
   // Khởi tạo: lấy hoặc tạo conversation, fetch lịch sử
   useEffect(() => {
@@ -49,9 +57,6 @@ export function useConversationChat(user) {
 
         const history = await spFetchConversationMessages(conv.id);
         if (!cancelled) setMessages(history || []);
-
-        // Đánh dấu admin đã đọc
-        await spMarkConversationRead(conv.id, 'user');
       } catch (err) {
         console.error('[useConversationChat] init error:', err);
       } finally {
@@ -62,6 +67,15 @@ export function useConversationChat(user) {
     init();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Đánh dấu đã đọc mỗi khi khung chat được MỞ (lúc mở lần đầu, hoặc conversation
+  // vừa tải xong trong khi khung đang mở sẵn).
+  useEffect(() => {
+    if (!isOpen || !conversation?.id) return;
+    if (!conversation.unread_user) return;
+    spMarkConversationRead(conversation.id, 'user').catch(() => {});
+    setConversation((prev) => (prev ? { ...prev, unread_user: 0 } : prev));
+  }, [isOpen, conversation?.id, conversation?.unread_user]);
 
   // Subscribe realtime tin nhắn mới trong conversation
   useEffect(() => {
@@ -76,13 +90,23 @@ export function useConversationChat(user) {
 
       const newMsg = row;
       setMessages((prev) => {
-        if (prev.some((m) => m.id === newMsg.id)) return prev;
-        return [...prev, newMsg];
+        const idx = prev.findIndex((m) => m.id === newMsg.id);
+        if (idx === -1) return [...prev, newMsg];
+        // UPDATE — merge để phản ánh thay đổi (vd. admin vừa đọc tin của mình) ngay.
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...newMsg };
+        return next;
       });
-      // Nếu admin gửi → đánh dấu user đã đọc
-      if (newMsg.sender_role === 'admin' || newMsg.sender_role === 'super_admin') {
-        spMarkConversationRead(convId, 'user').catch(() => {});
-        setConversation((prev) => prev ? { ...prev, unread_user: 0 } : prev);
+
+      // Chỉ xử lý cho tin nhắn MỚI (INSERT) từ admin — tránh vòng lặp vô ích khi
+      // chính hành động đánh dấu đã đọc bên dưới lại tự phát sinh sự kiện UPDATE.
+      if (eventType === 'INSERT' && (newMsg.sender_role === 'admin' || newMsg.sender_role === 'super_admin')) {
+        if (isOpenRef.current) {
+          spMarkConversationRead(convId, 'user').catch(() => {});
+          setConversation((prev) => (prev ? { ...prev, unread_user: 0 } : prev));
+        } else {
+          setConversation((prev) => (prev ? { ...prev, unread_user: (prev.unread_user || 0) + 1 } : prev));
+        }
       }
     });
 
