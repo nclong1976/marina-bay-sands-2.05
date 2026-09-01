@@ -43,6 +43,14 @@ export function useConversationChat(user, isOpen = false) {
   const isOpenRef = useRef(isOpen);
   useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
+  // Promise của lần khởi tạo conversation đang chạy — sendMessage() PHẢI đợi promise
+  // này trước khi gửi. Nếu không, người dùng gõ & bấm Gửi ngay khi vừa mở khung chat
+  // (trước khi spGetOrCreateConversation kịp trả về) sẽ khiến convIdRef.current vẫn
+  // đang null tại thời điểm gửi → tin nhắn bị lưu với conversation_id = NULL, biến mất
+  // vĩnh viễn khỏi tầm nhìn của Admin (đây chính là nguyên nhân "gửi tin mà Admin không
+  // nhận được" — đã phát hiện các tin nhắn thật bị lỗi này trong dữ liệu sản xuất).
+  const initPromiseRef = useRef(null);
+
   // Khởi tạo: lấy hoặc tạo conversation, fetch lịch sử
   useEffect(() => {
     if (!userId) return;
@@ -66,7 +74,7 @@ export function useConversationChat(user, isOpen = false) {
       }
     };
 
-    init();
+    initPromiseRef.current = init();
     return () => { cancelled = true; };
   }, [userId]);
 
@@ -142,7 +150,14 @@ export function useConversationChat(user, isOpen = false) {
     const trimmed = (text || '').trim();
     if (!trimmed && !imageUrl) return;
     if (!userId) return;
+
+    // Đợi conversation khởi tạo xong nếu người dùng gửi quá nhanh — tránh gửi với
+    // conversation_id = NULL (xem giải thích ở initPromiseRef phía trên).
+    if (!convIdRef.current && initPromiseRef.current) {
+      await initPromiseRef.current;
+    }
     const convId = convIdRef.current;
+    if (!convId) return; // Conversation vẫn chưa sẵn sàng (lỗi mạng) — không gửi mù.
 
     const msgId = 'msg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const optimistic = {
