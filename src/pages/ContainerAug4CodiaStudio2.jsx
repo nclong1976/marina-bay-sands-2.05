@@ -15,7 +15,7 @@ import SettingsModal from "@/components/profile/SettingsModal";
 import BetHistoryModal from "@/components/profile/BetHistoryModal";
 import TxHistoryModal from "@/components/profile/TxHistoryModal";
 import LinkAccountModal from "@/components/profile/LinkAccountModal";
-import SupportChat from "@/components/profile/SupportChat";
+import ChatWidget from "@/components/chat/ChatWidget";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import DepositModal from "@/components/profile/DepositModal";
 import { MIN_TURNOVER } from "@/components/profile/profileData";
@@ -165,7 +165,7 @@ export default function ContainerAug4CodiaStudio2() {
       <BetHistoryModal open={openBet} onOpenChange={setOpenBet} bets={bets} />
       <TxHistoryModal open={!!txMode} onOpenChange={(v) => !v && setTxMode(null)} txs={txs} mode={txMode || "both"} />
       <LinkAccountModal open={openLink} onOpenChange={setOpenLink} onAdd={addLinked} linked={linked} />
-      <SupportChat open={openChat} onOpenChange={setOpenChat} />
+      <ChatWidget open={openChat} onClose={() => setOpenChat(false)} />
       <WithdrawModal
         open={openWithdraw}
         onOpenChange={setOpenWithdraw}

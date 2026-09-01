@@ -18,40 +18,48 @@ export default function Overview() {
   const [bets, setBets] = useState([]);
 
   useEffect(() => {
-    base44.entities.Transaction.list().then(setTxs).catch(() => {});
+    const load = () => {
+      base44.entities.Transaction.list().then(setTxs).catch(() => {});
 
-    // Supabase là nguồn CHUẨN — thấy TẤT CẢ người dùng & vé cược dù hoạt động ở thiết bị nào.
-    if (isSupabaseConfigured()) {
-      spListUsers().then((rows) => {
-        if (Array.isArray(rows)) {
-          setUsers(rows.map((r) => ({
-            id: r.id,
-            account: r.account,
-            email: r.email,
-            locked: !!r.locked,
-          })));
-        }
-      }).catch(() => {});
+      // Supabase là nguồn CHUẨN — thấy TẤT CẢ người dùng & vé cược dù hoạt động ở thiết bị nào.
+      if (isSupabaseConfigured()) {
+        spListUsers().then((rows) => {
+          if (Array.isArray(rows)) {
+            setUsers(rows.map((r) => ({
+              id: r.id,
+              account: r.account,
+              email: r.email,
+              locked: !!r.locked,
+            })));
+          }
+        }).catch(() => {});
 
-      spListAllGameBets().then((rows) => {
-        if (!Array.isArray(rows)) return;
-        setBets(rows.map((r) => {
-          const details = r.details || {};
-          return {
-            id: r.id,
-            userId: r.user_id,
-            userEmail: r.user_id,
-            hallName: details.game || r.game_type,
-            amount: Number(r.amount) || 0,
-            result: r.status,
-            created_date: details.created_date || r.created_at,
-          };
-        }));
-      }).catch(() => {});
-    } else {
-      base44.entities.User.list().then(setUsers).catch(() => {});
-      base44.entities.Bet.list().then(setBets).catch(() => {});
-    }
+        spListAllGameBets().then((rows) => {
+          if (!Array.isArray(rows)) return;
+          setBets(rows.map((r) => {
+            const details = r.details || {};
+            return {
+              id: r.id,
+              userId: r.user_id,
+              userEmail: r.user_id,
+              hallName: details.game || r.game_type,
+              amount: Number(r.amount) || 0,
+              result: r.status,
+              created_date: details.created_date || r.created_at,
+            };
+          }));
+        }).catch(() => {});
+      } else {
+        base44.entities.User.list().then(setUsers).catch(() => {});
+        base44.entities.Bet.list().then(setBets).catch(() => {});
+      }
+    };
+
+    load();
+    // Poll để số liệu tổng quan tự cập nhật khi có người dùng/vé cược mới từ thiết bị
+    // khác, không cần Admin tự bấm F5.
+    const timer = setInterval(load, 8000);
+    return () => clearInterval(timer);
   }, []);
 
   const visibleUsers = useMemo(() => {

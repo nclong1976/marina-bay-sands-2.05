@@ -519,6 +519,23 @@ export const spListAllWithdrawRequests = async (limit = 500) => {
 };
 
 /**
+ * Realtime: báo cho Admin ngay khi có đơn rút tiền mới/được cập nhật — để hàng đợi
+ * duyệt rút tiền tự hiện đơn mới dù Admin đang mở trên thiết bị/tab nào, không cần
+ * bấm "Tải lại" thủ công.
+ */
+export const spSubscribeAllWithdrawRequests = subscribeShared(
+  'public:withdraw_requests',
+  (emit) =>
+    supabase
+      .channel('public:withdraw_requests')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'withdraw_requests' },
+        (payload) => emit(payload)
+      )
+      .subscribe()
+);
+
+/**
  * Admin: duyệt/từ chối đơn rút tiền — cập nhật trạng thái trên Supabase để mọi thiết bị
  * (kể cả thiết bị của người dùng gửi đơn) thấy đúng kết quả tức thì.
  */
@@ -830,6 +847,18 @@ export const spMarkConversationRead = async (conversationId, role = 'user') => {
 };
 
 /**
+ * Xóa 1 tin nhắn (Super Admin thu hồi) — xóa thẳng trên Supabase để biến mất khỏi
+ * MỌI thiết bị đang xem hội thoại này (admin khác + chính người dùng), không chỉ
+ * riêng trình duyệt của người bấm xóa.
+ */
+export const spDeleteChatMessage = async (msgId) => {
+  if (!isSupabaseConfigured() || !msgId) return false;
+  const { error } = await supabase.from('chat_messages').delete().eq('id', msgId);
+  if (error) { console.error('spDeleteChatMessage:', error); return false; }
+  return true;
+};
+
+/**
  * Realtime: lắng nghe thay đổi danh sách conversations (Admin).
  */
 export const spSubscribeConversations = subscribeShared(
@@ -845,9 +874,11 @@ export const spSubscribeConversations = subscribeShared(
 );
 
 /**
- * Realtime: lắng nghe tin nhắn mới trong 1 conversation cụ thể.
+ * Realtime: lắng nghe tin nhắn mới HOẶC bị xóa trong 1 conversation cụ thể — báo
+ * `{ eventType: 'INSERT'|'DELETE', row }` để nơi gọi biết thêm hay bớt tin nhắn khỏi
+ * danh sách, giúp việc xóa tin nhắn (thu hồi) cũng phản ánh ngay trên mọi thiết bị.
  */
-export const spSubscribeConversationMessages = (conversationId, onMessage) => {
+export const spSubscribeConversationMessages = (conversationId, onChange) => {
   if (!isSupabaseConfigured() || !supabase || !conversationId) return () => {};
   const key = `public:chat_messages:conv:${conversationId}`;
   return subscribeShared(key, (emit) =>
@@ -855,15 +886,18 @@ export const spSubscribeConversationMessages = (conversationId, onMessage) => {
       .channel(key)
       .on('postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'chat_messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => { if (payload.new) emit(payload.new); }
+        (payload) => {
+          const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+          if (row) emit({ eventType: payload.eventType, row });
+        }
       )
       .subscribe()
-  )(onMessage);
+  )(onChange);
 };
 
 /**

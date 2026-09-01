@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { spUploadFile } from "@/lib/supabaseService";
 import { Switch } from "@/components/ui/switch";
@@ -29,6 +29,7 @@ import { Panel, inputCls, Badge } from "../ui";
 import {
   getBannerConfig,
   saveBannerConfig,
+  subscribeBannerConfig,
   PRESET_BANNERS,
   DEFAULT_BANNER_CONFIG,
   readFileAsDataUrl,
@@ -38,6 +39,12 @@ import {
 export default function Banners() {
   const { toast } = useToast();
   const [config, setConfig] = useState(getBannerConfig());
+
+  // Nếu Admin khác vừa sửa banner (trên thiết bị/tab khác), màn hình này tự cập nhật
+  // theo — tránh trường hợp 2 admin cùng sửa banner nhưng nhìn thấy dữ liệu cũ khác nhau.
+  useEffect(() => {
+    return subscribeBannerConfig((nextConfig) => setConfig(nextConfig));
+  }, []);
   const [openModal, setOpenModal] = useState(false);
   const [editingBanner, setEditingBanner] = useState(null);
   const [uploading, setUploading] = useState(false);

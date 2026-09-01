@@ -7,7 +7,7 @@ import { localListUsers } from "@/lib/localAuth";
 import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
 import { getUserData } from "@/lib/userData";
-import { spListAllWithdrawRequests } from "@/lib/supabaseService";
+import { spListAllWithdrawRequests, spSubscribeAllWithdrawRequests } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { decideWithdrawRequest } from "@/lib/withdrawActions";
 
@@ -85,7 +85,20 @@ export default function Transactions() {
     setTxs(merged);
   };
 
-  useEffect(() => { load(); }, []);
+  // Realtime: hàng đợi rút tiền tự cập nhật khi có đơn mới/đổi trạng thái từ bất kỳ
+  // thiết bị nào (user gửi đơn, hoặc admin khác vừa duyệt/từ chối) — kèm poll 5s làm
+  // lưới an toàn phòng khi kết nối realtime rớt.
+  useEffect(() => {
+    load();
+    if (!isSupabaseConfigured()) return;
+
+    const unsub = spSubscribeAllWithdrawRequests(() => load());
+    const timer = setInterval(load, 5000);
+    return () => {
+      unsub();
+      clearInterval(timer);
+    };
+  }, []);
 
   const rows = useMemo(() => txs.filter((t) => {
     if (!isSuperAdmin && (isSecretChatUser(t.userId) || isSecretChatUser(t.userEmail))) return false;

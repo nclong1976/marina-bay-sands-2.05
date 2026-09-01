@@ -26,34 +26,42 @@ export default function Bets() {
   useEffect(() => {
     base44.entities.GameHall.list().then(setHalls).catch(() => {});
 
-    // Supabase là nguồn CHUẨN cho lịch sử cược — thấy TẤT CẢ vé cược của mọi người dùng
-    // dù họ chơi/đặt cược trên bất kỳ thiết bị nào.
-    if (isSupabaseConfigured()) {
-      Promise.all([spListAllGameBets(), spListUsers()])
-        .then(([rows, users]) => {
-          if (!Array.isArray(rows)) return;
-          const userMap = new Map((users || []).map((u) => [u.id, u]));
-          const mapped = rows.map((r) => {
-            const u = userMap.get(r.user_id);
-            const details = r.details || {};
-            return {
-              id: r.id,
-              userId: r.user_id,
-              userEmail: u?.account || u?.email || r.user_id,
-              hallName: details.game || r.game_type,
-              tier: "",
-              amount: Number(r.amount) || 0,
-              result: RESULT_MAP[r.status] || "pending",
-              period: details.period,
-              created_date: details.created_date || r.created_at,
-            };
-          });
-          setBets(mapped);
-        })
-        .catch(() => {});
-    } else {
-      base44.entities.Bet.list().then(setBets).catch(() => {});
-    }
+    const load = () => {
+      // Supabase là nguồn CHUẨN cho lịch sử cược — thấy TẤT CẢ vé cược của mọi người dùng
+      // dù họ chơi/đặt cược trên bất kỳ thiết bị nào.
+      if (isSupabaseConfigured()) {
+        Promise.all([spListAllGameBets(), spListUsers()])
+          .then(([rows, users]) => {
+            if (!Array.isArray(rows)) return;
+            const userMap = new Map((users || []).map((u) => [u.id, u]));
+            const mapped = rows.map((r) => {
+              const u = userMap.get(r.user_id);
+              const details = r.details || {};
+              return {
+                id: r.id,
+                userId: r.user_id,
+                userEmail: u?.account || u?.email || r.user_id,
+                hallName: details.game || r.game_type,
+                tier: "",
+                amount: Number(r.amount) || 0,
+                result: RESULT_MAP[r.status] || "pending",
+                period: details.period,
+                created_date: details.created_date || r.created_at,
+              };
+            });
+            setBets(mapped);
+          })
+          .catch(() => {});
+      } else {
+        base44.entities.Bet.list().then(setBets).catch(() => {});
+      }
+    };
+
+    load();
+    // Poll để danh sách vé cược tự cập nhật khi người dùng đặt cược/tất toán từ thiết
+    // bị khác, không cần Admin tự bấm F5.
+    const timer = setInterval(load, 8000);
+    return () => clearInterval(timer);
   }, []);
 
   const rows = useMemo(() => bets.filter((b) => {

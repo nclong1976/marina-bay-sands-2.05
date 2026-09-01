@@ -6,7 +6,6 @@ import {
 import { Panel, inputCls } from '../ui';
 import { useAuth } from '@/lib/AuthContext';
 import { useAdminChat } from '@/hooks/useAdminChat';
-import { deleteChatMessage } from '@/lib/localChat';
 import { useToast } from '@/components/ui/use-toast';
 
 // ─── Avatar ──────────────────────────────────────────────────────────────────
@@ -153,6 +152,7 @@ export default function Chat() {
     isLoadingConvs,
     isLoadingMsgs,
     sendReply,
+    deleteMessage,
     notifyTyping,
     totalUnread,
     refreshConversations,
@@ -209,9 +209,9 @@ export default function Chat() {
   };
 
   // Xóa tin nhắn (Super Admin)
-  const handleDeleteMessage = (msgId) => {
+  const handleDeleteMessage = async (msgId) => {
     if (!isSuperAdmin) return;
-    deleteChatMessage(msgId);
+    await deleteMessage(msgId);
     toast({ title: 'Đã xóa tin nhắn', description: 'Super Admin đã thu hồi tin nhắn.' });
   };
 

@@ -4,6 +4,7 @@ import {
   spFetchConversationMessages,
   spSendChatMessageV2,
   spMarkConversationRead,
+  spDeleteChatMessage,
   spSubscribeConversations,
   spSubscribeConversationMessages,
   spBroadcastTyping,
@@ -113,9 +114,16 @@ export function useAdminChat() {
       prev.map((c) => c.id === convId ? { ...c, unread_admin: 0 } : c)
     );
 
-    // Subscribe tin nhắn mới
-    unsubMsgsRef.current = spSubscribeConversationMessages(convId, (newMsg) => {
+    // Subscribe tin nhắn mới / bị xóa
+    unsubMsgsRef.current = spSubscribeConversationMessages(convId, ({ eventType, row }) => {
       if (activeConvIdRef.current !== convId) return;
+
+      if (eventType === 'DELETE') {
+        setMessages((prev) => prev.filter((m) => m.id !== row.id));
+        return;
+      }
+
+      const newMsg = row;
       setMessages((prev) => {
         if (prev.some((m) => m.id === newMsg.id)) return prev;
         return [...prev, newMsg];
@@ -203,6 +211,13 @@ export function useAdminChat() {
     });
   }, [conversations]);
 
+  // ─── Xóa (thu hồi) 1 tin nhắn — Super Admin ──────────────────
+  const deleteMessage = useCallback(async (msgId) => {
+    if (!msgId) return false;
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    return spDeleteChatMessage(msgId);
+  }, []);
+
   // ─── Admin đang gõ → thông báo cho user ─────────────────────
   const adminTypingTimer = useRef(null);
   const notifyTyping = useCallback((isTyping, adminUser) => {
@@ -233,6 +248,7 @@ export function useAdminChat() {
     isLoadingConvs,
     isLoadingMsgs,
     sendReply,
+    deleteMessage,
     notifyTyping,
     totalUnread,
     refreshConversations: loadConversations,

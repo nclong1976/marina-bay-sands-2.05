@@ -68,7 +68,13 @@ export function useConversationChat(user) {
     const convId = convIdRef.current;
     if (!convId || !isSupabaseConfigured()) return;
 
-    const unsub = spSubscribeConversationMessages(convId, (newMsg) => {
+    const unsub = spSubscribeConversationMessages(convId, ({ eventType, row }) => {
+      if (eventType === 'DELETE') {
+        setMessages((prev) => prev.filter((m) => m.id !== row.id));
+        return;
+      }
+
+      const newMsg = row;
       setMessages((prev) => {
         if (prev.some((m) => m.id === newMsg.id)) return prev;
         return [...prev, newMsg];
