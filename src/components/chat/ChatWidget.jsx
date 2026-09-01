@@ -60,9 +60,8 @@ const MessageBubble = ({ msg, isOwn }) => {
  * ChatWidget — Widget hỗ trợ trực tuyến nổi góc phải màn hình.
  * Dùng useConversationChat để kết nối Supabase Realtime.
  */
-export default function ChatWidget() {
+export default function ChatWidget({ open, onClose }) {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const messagesEndRef = useRef(null);
@@ -70,7 +69,7 @@ export default function ChatWidget() {
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  const { messages, isLoading, adminIsTyping, unreadUser, send, notifyTyping } =
+  const { messages, isLoading, adminIsTyping, send, notifyTyping } =
     useConversationChat(user);
 
   // Scroll xuống cuối khi có tin mới
@@ -122,41 +121,9 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* ── FAB Button ─────────────────────────────────────────── */}
-      <button
-        id="chat-widget-fab"
-        aria-label="Mở chat hỗ trợ"
-        onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-24 right-4 z-[9998] w-14 h-14 rounded-full shadow-2xl
-          bg-gradient-to-br from-amber-400 to-orange-500
-          flex items-center justify-center
-          transition-all duration-300 hover:scale-110 active:scale-95
-          ring-4 ring-amber-400/30"
-      >
-        {/* Ping glow */}
-        {!open && unreadUser > 0 && (
-          <span className="absolute inset-0 rounded-full animate-ping bg-amber-400/40 pointer-events-none" />
-        )}
-
-        {open ? (
-          <X className="w-6 h-6 text-white" />
-        ) : (
-          <MessageSquare className="w-6 h-6 text-white" />
-        )}
-
-        {/* Unread badge */}
-        {!open && unreadUser > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1
-            flex items-center justify-center text-[10px] font-bold
-            text-white bg-red-500 rounded-full border-2 border-[#0A0E1A]">
-            {unreadUser > 99 ? '99+' : unreadUser}
-          </span>
-        )}
-      </button>
-
       {/* ── Chat Panel ─────────────────────────────────────────── */}
       <div
-        className={`fixed bottom-[calc(5.5rem+64px)] right-4 z-[9997]
+        className={`fixed bottom-24 right-4 z-[9997]
           w-[360px] max-w-[calc(100vw-2rem)]
           flex flex-col rounded-2xl overflow-hidden
           bg-[#0f1225]/95 backdrop-blur-xl
@@ -182,7 +149,7 @@ export default function ChatWidget() {
             </p>
           </div>
           <button
-            onClick={() => setOpen(false)}
+            onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />

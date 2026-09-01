@@ -11,9 +11,7 @@ import CategoryTabs from "@/components/home/CategoryTabs";
 import BannerCarousel from "@/components/home/BannerCarousel";
 import GameSearchBar from "@/components/home/GameSearchBar";
 import GameGrid from "@/components/home/GameGrid";
-import FloatingChatButton from "@/components/home/FloatingChatButton";
 import ChatWidget from "@/components/chat/ChatWidget";
-import SupportChat from "@/components/profile/SupportChat";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import LinkAccountModal from "@/components/profile/LinkAccountModal";
 import BetHistoryModal from "@/components/profile/BetHistoryModal";
@@ -231,12 +229,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* New Supabase Realtime Chat Widget (hidden for admin) */}
-      <ChatWidget />
-      <FloatingChatButton onClick={openChat} unread={0} />
+      {/* Supabase Realtime Chat Widget (hidden for admin) */}
+      <ChatWidget open={chatOpen} onClose={() => setChatOpen(false)} />
       <BottomNav />
-
-      <SupportChat open={chatOpen} onOpenChange={setChatOpen} />
       <WithdrawModal
         open={openWithdraw}
         onOpenChange={setOpenWithdraw}
