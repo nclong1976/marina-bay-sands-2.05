@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { adminAdjustBalance } from "@/lib/localAuth";
 import { getUserData } from "@/lib/userData";
-import { pushNotification } from "@/lib/localNotifications";
 import { spGetUserProfile } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { Wallet, PlusCircle, MinusCircle, FileText } from "lucide-react";
@@ -71,14 +70,8 @@ export default function BalanceAdjustModal({ open, onOpenChange, user, onSaved, 
         propUpdateUserData(user.id, { balance: finalBalance });
       }
 
-      // Gửi thông báo đến tài khoản người dùng
-      try {
-        pushNotification(user.id, {
-          title: mode === "add" ? "Biến động số dư: + CỘNG TIỀN" : "Biến động số dư: - TRỪ TIỀN",
-          body: `Tài khoản của bạn vừa được ${mode === "add" ? "cộng" : "trừ"} $${numAmount.toLocaleString()} USD. Lý do: ${cleanReason}. Số dư hiện tại: $${finalBalance.toLocaleString()} USD`,
-          type: mode === "add" ? "deposit" : "withdraw",
-        });
-      } catch { /* ignore notification error */ }
+      // Thông báo tới tài khoản người dùng đã được adminAdjustBalance gửi (cả cục bộ lẫn
+      // qua Supabase để tới đúng thiết bị khách hàng) — không gửi trùng lặp ở đây nữa.
 
       // Phản hồi Toast Notification thành công chuẩn yêu cầu
       const actionText = mode === "add" ? "cộng" : "trừ";

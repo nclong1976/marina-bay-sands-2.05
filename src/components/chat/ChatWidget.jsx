@@ -164,7 +164,7 @@ export default function ChatWidget() {
           bg-[#0f1225]/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/60
           transition-all duration-300 origin-bottom-right
           ${open ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-90 translate-y-4 pointer-events-none'}`}
-        style={{ height: '520px' }}
+        style={{ height: '520px', maxHeight: 'calc(100dvh - 112px)' }}
       >
         <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[#1a1f3c] to-[#141830] border-b border-white/10 shrink-0">
           <div className="relative">
