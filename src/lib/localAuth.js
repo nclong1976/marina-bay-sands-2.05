@@ -3,8 +3,9 @@
 
 import { getUserData, saveUserData, updateUserData, defaultUserData } from "@/lib/userData";
 import { base44 } from "@/api/base44Client";
-import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser, spGetUserProfile, spDeleteUser } from "@/lib/supabaseService";
+import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser, spGetUserProfile, spDeleteUser, spInsertNotifications } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { pushNotification } from "@/lib/localNotifications";
 
 const USERS_KEY = "local_users";
 const SESSION_KEY = "user";
@@ -523,6 +524,24 @@ export const adminAdjustBalance = async (userId, amountInput, reasonInput = "", 
         method: "Hệ thống Admin",
         reason: auditReason,
       }).catch(() => {});
+    }
+
+    // Báo cho khách hàng biết Admin vừa cộng/trừ tiền vào tài khoản của họ — cả cục bộ
+    // (phản hồi tức thì nếu đang cùng máy) lẫn qua Supabase (để đến đúng thiết bị khách
+    // hàng đang dùng, giống cơ chế thông báo duyệt/từ chối rút tiền).
+    const notifTitle = isAdd ? "Nạp tiền thành công" : "Trừ tiền tài khoản";
+    const notifBody = isAdd
+      ? `Hệ thống đã cộng thành công số tiền ${amount.toLocaleString()} USD vào tài khoản của quý khách. Lý do: ${cleanReason}`
+      : `Hệ thống đã trừ số tiền ${amount.toLocaleString()} USD từ tài khoản của quý khách. Lý do: ${cleanReason}`;
+    // Dùng CHUNG 1 id cho bản ghi cục bộ và bản ghi Supabase — để hydrateUserNotifications/
+    // mergeRemoteNotification (khớp theo id) nhận ra đây là cùng 1 thông báo và không hiển
+    // thị trùng lặp khi Admin và khách hàng đang mở chung 1 trình duyệt (chia sẻ localStorage).
+    const notifId = "NOTIF_ADM_" + Date.now().toString(36);
+    pushNotification(userId, { id: notifId, type: "balance", title: notifTitle, body: notifBody });
+    if (isSupabaseConfigured()) {
+      spInsertNotifications([
+        { id: notifId, userId, type: "balance", title: notifTitle, body: notifBody, audience: "user" },
+      ]).catch(() => {});
     }
 
     // Cố gắng đồng bộ lên CSDL Base44 nếu tài khoản tồn tại
