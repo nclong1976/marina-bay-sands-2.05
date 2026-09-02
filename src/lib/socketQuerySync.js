@@ -3,13 +3,11 @@ import { queryClientInstance } from './query-client';
 import { getSocket } from './socket';
 import { getGameConfigs } from './gameStore';
 import { getUserData } from './userData';
-import { getChatMessages } from './localChat';
 import { getBannerConfig } from './bannerStore';
 
 export const QUERY_KEYS = {
   gameConfigs: ['gameConfigs'],
   userData: (userId) => ['userData', userId || 'guest_user'],
-  chatMessages: (userId) => ['chatMessages', userId || 'all'],
   banners: ['banners'],
   auditLogs: ['auditLogs'],
 };
@@ -56,14 +54,6 @@ export const useSocketQuerySync = (userId, role) => {
       updateCache(QUERY_KEYS.userData(targetUserId), latest);
     };
 
-    // 3. Customer Support Live Chat Sync
-    const handleNewChatMessage = (payload) => {
-      console.log('🔄 [TanStack Query Sync] Updating chatMessages cache from Socket');
-      const targetUserId = payload?.userId || userId;
-      const latest = getChatMessages(role);
-      updateCache(QUERY_KEYS.chatMessages(targetUserId), latest);
-    };
-
     // 4. System Banners Sync
     const handleBannerUpdated = (payload) => {
       console.log('🔄 [TanStack Query Sync] Updating banners cache from Socket');
@@ -80,14 +70,12 @@ export const useSocketQuerySync = (userId, role) => {
     // Bind Socket.io listeners
     socket.on('game:configs_updated', handleGameConfigsUpdated);
     socket.on('user:state_updated', handleUserStateUpdated);
-    socket.on('chat:new_message', handleNewChatMessage);
     socket.on('banner:updated', handleBannerUpdated);
     socket.on('admin:audit_logged', handleAuditLogged);
 
     return () => {
       socket.off('game:configs_updated', handleGameConfigsUpdated);
       socket.off('user:state_updated', handleUserStateUpdated);
-      socket.off('chat:new_message', handleNewChatMessage);
       socket.off('banner:updated', handleBannerUpdated);
       socket.off('admin:audit_logged', handleAuditLogged);
     };

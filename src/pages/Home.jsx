@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/lib/AuthContext";
@@ -11,7 +11,6 @@ import CategoryTabs from "@/components/home/CategoryTabs";
 import BannerCarousel from "@/components/home/BannerCarousel";
 import GameSearchBar from "@/components/home/GameSearchBar";
 import GameGrid from "@/components/home/GameGrid";
-import ChatWidget from "@/components/chat/ChatWidget";
 import WithdrawModal from "@/components/profile/WithdrawModal";
 import LinkAccountModal from "@/components/profile/LinkAccountModal";
 import BetHistoryModal from "@/components/profile/BetHistoryModal";
@@ -19,8 +18,8 @@ import { GAMES, CATEGORIES } from "@/components/home/homeData";
 import { useI18n } from "@/lib/I18nContext";
 import { MIN_TURNOVER } from "@/components/profile/profileData";
 import { resolveInitialTier, getTier } from "@/components/lobby/lobbyData";
-import DepositModal from "@/components/profile/DepositModal";
 import { handleDepositRequest } from "@/lib/depositHandler";
+import { useChatUI } from "@/lib/ChatUIContext";
 import { getGameConfig, getCustomGames } from "@/lib/gameStore";
 import { spCreateWithdrawRequest, spUpdateUser } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -34,8 +33,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
+  const { unread: chatUnread, openChat } = useChatUI();
   const [allGames, setAllGames] = useState(() => getCustomGames(GAMES));
 
   useEffect(() => {
@@ -61,7 +59,6 @@ export default function Home() {
   const [openWithdraw, setOpenWithdraw] = useState(false);
   const [openLink, setOpenLink] = useState(false);
   const [openBet, setOpenBet] = useState(false);
-  const [openDeposit, setOpenDeposit] = useState(false);
 
   const { t } = useI18n();
 
@@ -80,15 +77,8 @@ export default function Home() {
     return () => clearTimeout(id);
   }, [category, search, refreshKey]);
 
-  const openChat = useCallback(() => setChatOpen(true), []);
-
   const handleDeposit = () => {
-    handleDepositRequest({
-      user: authUser,
-      navigate,
-      toast,
-      openChat: () => setChatOpen(true),
-    });
+    handleDepositRequest({ user: authUser, navigate, toast, openChat });
   };
 
   const handleRefresh = () => {
@@ -231,8 +221,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Supabase Realtime Chat Widget (hidden for admin) */}
-      <ChatWidget open={chatOpen} onClose={() => setChatOpen(false)} onUnreadChange={setChatUnread} />
       <BottomNav />
       <WithdrawModal
         open={openWithdraw}
@@ -245,7 +233,6 @@ export default function Home() {
       />
       <LinkAccountModal open={openLink} onOpenChange={setOpenLink} onAdd={addLinked} linked={linked} />
       <BetHistoryModal open={openBet} onOpenChange={setOpenBet} bets={bets} />
-      <DepositModal open={openDeposit} onOpenChange={setOpenDeposit} onOpenChat={() => setChatOpen(true)} />
     </main>
   );
 }

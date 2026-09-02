@@ -10,7 +10,7 @@ import Notifications from "./modules/Notifications";
 import Settings from "./modules/Settings";
 import Chat from "./modules/Chat";
 import Banners from "./modules/Banners";
-import { useAdminChat } from "@/hooks/useAdminChat";
+import { AdminChatProvider, useAdminChatContext } from "@/lib/AdminChatContext";
 import { useToast } from "@/components/ui/use-toast";
 import { playChatMessageSound, playWithdrawalSound } from "@/lib/soundEffects";
 import { spSubscribeAllWithdrawRequests } from "@/lib/supabaseService";
@@ -30,12 +30,24 @@ const MODULES = {
 
 export default function AdminApp() {
   const { user, logout } = useAuth();
+  const handleLogout = () => logout("/login");
+
+  // useAdminTickets() sống ở ĐÚNG 1 nơi (bên trong Provider này) — AdminShell
+  // (badge chuông) và trang Nhắn tin bên dưới đều đọc chung 1 bản state qua
+  // useAdminChatContext(), không còn 2 bản độc lập có thể lệch nhau.
+  return (
+    <AdminChatProvider user={user}>
+      <AdminAppInner user={user} onLogout={handleLogout} />
+    </AdminChatProvider>
+  );
+}
+
+function AdminAppInner({ user, onLogout }) {
   const { toast } = useToast();
   const [active, setActive] = useState("overview");
   const Mod = MODULES[active] || Overview;
 
-  // Lấy tổng unread từ conversations — hiển thị badge Bell trong AdminShell header
-  const { totalUnread, conversations } = useAdminChat();
+  const { totalUnread, conversations } = useAdminChatContext();
 
   // Báo tin nhắn mới (chuông + toast) — chạy ở đây (gốc AdminApp) để hoạt động bất kể
   // Admin đang xem trang nào, không chỉ khi mở sẵn trang Nhắn tin. So sánh unread_admin
@@ -50,7 +62,7 @@ export default function AdminApp() {
       if (prev !== undefined && curr > prev) {
         const name = c.users_profile?.full_name || c.users_profile?.account || "Khách";
         playChatMessageSound();
-        toast({ title: `💬 Tin nhắn mới từ ${name}`, description: c.last_message_body || "" });
+        toast({ title: `💬 Tin nhắn mới từ ${name}`, description: c.last_message_preview || "" });
       }
       prevUnreadRef.current.set(c.id, curr);
     });
@@ -73,12 +85,8 @@ export default function AdminApp() {
     return () => unsub();
   }, [toast]);
 
-  const handleLogout = () => {
-    logout("/login");
-  };
-
   return (
-    <AdminShell active={active} onNavigate={setActive} user={user} onLogout={handleLogout} unread={totalUnread}>
+    <AdminShell active={active} onNavigate={setActive} user={user} onLogout={onLogout} unread={totalUnread}>
       <Mod />
     </AdminShell>
   );
