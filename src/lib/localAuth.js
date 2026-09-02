@@ -388,7 +388,11 @@ export const adminUpdateUser = (userId, patch) => {
             holder: patch.bankHolder || current.full_name || "",
           });
         }
-        updateUserData(userId, { linked });
+        // Chỉ đang cập nhật cache cục bộ để UI (thẻ ngân hàng) hiển thị đúng ngay — số dư
+        // đã được đẩy lên Supabase riêng qua spUpdateUser bên dưới với đúng giá trị Admin
+        // vừa nhập; đẩy lại số dư (kế thừa từ cache) ở đây là thừa và có thể ghi đè bằng
+        // số liệu cũ nếu Admin cùng lúc vừa đổi cả số dư lẫn thông tin ngân hàng.
+        updateUserData(userId, { linked }, { skipRemotePush: true });
       } catch { /* ignore */ }
     }
 

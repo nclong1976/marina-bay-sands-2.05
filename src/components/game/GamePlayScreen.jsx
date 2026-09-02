@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useUserData, getUserData, updateUserData as setGlobalUserData, resolveUserId } from "@/lib/userData";
 import { getCurrentRoundInfo, getPeriodDraw, settlePendingBets } from "@/lib/gameRoundManager";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { spSyncGameBet } from "@/lib/supabaseService";
+import { spSyncGameBet, spGetUserProfile } from "@/lib/supabaseService";
 
 export default function GamePlayScreen({ gameId, tier, variantId }) {
   const config = useMemo(() => getGameConfig(gameId), [gameId]);
@@ -334,7 +334,7 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
     });
   };
 
-  const executeBetSubmission = () => {
+  const executeBetSubmission = async () => {
     if (!confirmModalData || isSubmitting) return;
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -345,6 +345,21 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
     setIsSubmitting(true);
     try {
       const { toSubmit, total, activePeriod, uid } = confirmModalData;
+
+      // Lấy số dư THẬT từ Supabase ngay trước khi trừ tiền — không được chỉ dựa vào cache
+      // cục bộ (freshUserData ở bước xác nhận phía trên có thể đã lỗi thời vài giây, ví dụ
+      // Admin vừa cộng/trừ tiền hoặc cùng tài khoản đang mở ở thiết bị khác), nếu không số
+      // dư thật trên Supabase sẽ bị ghi đè bằng 1 con số sai ngay khi trừ tiền đặt cược —
+      // cùng dạng lỗi đã xác nhận ở luồng tất toán vé (settlePendingBets).
+      let authoritativeBalance = null;
+      if (isSupabaseConfigured()) {
+        try {
+          const spProfile = await spGetUserProfile(uid);
+          if (spProfile && typeof spProfile.balance === "number") {
+            authoritativeBalance = spProfile.balance;
+          }
+        } catch { /* ignore — rơi về cache cục bộ nếu Supabase lỗi/mất mạng */ }
+      }
 
       const newBets = toSubmit.map((t, idx) => {
         const snapOdds = Number(t.odds || getEffectiveOdds(t) || 1.98);
@@ -391,7 +406,7 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
           return latestDB;
         }
 
-        const dbBal = latestDB?.balance ?? 0;
+        const dbBal = authoritativeBalance !== null ? authoritativeBalance : (latestDB?.balance ?? 0);
         if (dbBal < total) {
           failureMsg = `Số dư CSDL không đủ ($${dbBal} USD)!`;
           return latestDB;

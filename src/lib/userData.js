@@ -71,7 +71,7 @@ if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
   } catch { /* ignore */ }
 }
 
-export const saveUserData = (userId, data) => {
+export const saveUserData = (userId, data, opts = {}) => {
   const uid = resolveUserId(userId);
   try {
     localStorage.setItem(key(uid), JSON.stringify(data));
@@ -110,7 +110,13 @@ export const saveUserData = (userId, data) => {
   // Đẩy số dư mới nhất lên Supabase — đây là nguồn dữ liệu dùng để đồng bộ số dư
   // giữa các thiết bị (chơi game/thắng/thua trước đây chỉ lưu ở localStorage, khiến
   // số dư "biến mất" khi đổi thiết bị hoặc bị Supabase ghi đè ngược lại giá trị cũ).
-  if (isSupabaseConfigured() && uid && uid !== "guest_user" && typeof data?.balance === "number") {
+  // `skipRemotePush` — dùng cho những lượt gọi CHỈ đang sao chép số dư TỪ Supabase VÀO
+  // cache cục bộ (vd. syncFullAccountState, Realtime profile listener): đẩy ngược con số
+  // vừa đọc được lên lại Supabase là thừa, và nguy hiểm hơn — nếu giữa lúc đọc và lúc đẩy
+  // lại có 1 thao tác khác (đặt cược, tất toán vé...) vừa ghi số dư MỚI hơn lên Supabase,
+  // lượt đẩy lại thừa này sẽ GHI ĐÈ số dư mới đó bằng số liệu cũ vừa đọc — đã tái hiện và
+  // xác nhận trực tiếp (đặt cược trừ tiền thành công nhưng số dư bị đồng bộ nền ghi đè lại).
+  if (!opts.skipRemotePush && isSupabaseConfigured() && uid && uid !== "guest_user" && typeof data?.balance === "number") {
     spUpdateUser(uid, { balance: data.balance }).catch(() => {});
   }
 };
@@ -124,7 +130,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-export const updateUserData = (userId, patch) => {
+export const updateUserData = (userId, patch, opts = {}) => {
   const uid = resolveUserId(userId);
   const cur = getUserData(uid);
   let next = typeof patch === "function" ? patch(cur) : { ...cur, ...patch };
@@ -140,7 +146,7 @@ export const updateUserData = (userId, patch) => {
     const cleanBal = parseFloat(String(rawBal).replace(/[^0-9.-]+/g, "")) || 0;
     next.balance = Math.max(0, +cleanBal.toFixed(2));
   }
-  saveUserData(uid, next);
+  saveUserData(uid, next, opts);
   return next;
 };
 
@@ -184,7 +190,9 @@ export const syncFullAccountState = async (userId) => {
       }
 
       if (Object.keys(patch).length > 0) {
-        updateUserData(uid, patch);
+        // Chỉ đang sao chép số dư/thông tin ngân hàng TỪ Supabase VÀO cache cục bộ —
+        // không đẩy ngược lên lại (xem giải thích skipRemotePush trong saveUserData).
+        updateUserData(uid, patch, { skipRemotePush: true });
       }
 
       // 2.5. Đồng bộ Hồ Sơ (Tên, SĐT, Trạng thái khóa, Ghi chú Admin) xuống phiên hiện tại
@@ -265,7 +273,10 @@ export const syncFullAccountState = async (userId) => {
       );
 
       if (JSON.stringify(localTxs) !== JSON.stringify(mergedList)) {
-        updateUserData(uid, { txs: mergedList });
+        // Chỉ đang merge lịch sử giao dịch, không hề đổi số dư — nhưng patch object không
+        // chứa `balance` vẫn kế thừa balance hiện có trong cache khi merge {...cur, ...patch},
+        // nên vẫn phải chặn đẩy ngược để tránh vô tình ghi đè số dư mới hơn trên Supabase.
+        updateUserData(uid, { txs: mergedList }, { skipRemotePush: true });
       }
     }
 
@@ -294,7 +305,8 @@ export const syncFullAccountState = async (userId) => {
       );
 
       if (JSON.stringify(localWRs) !== JSON.stringify(mergedWRs)) {
-        updateUserData(uid, { withdrawRequests: mergedWRs });
+        // Chỉ merge danh sách đơn rút tiền, không đổi số dư — chặn đẩy ngược cùng lý do trên.
+        updateUserData(uid, { withdrawRequests: mergedWRs }, { skipRemotePush: true });
       }
     }
 
@@ -348,7 +360,12 @@ export const syncFullAccountState = async (userId) => {
       );
 
       if (JSON.stringify(localBets) !== JSON.stringify(mergedBets)) {
-        updateUserData(uid, { bets: mergedBets });
+        // Chỉ merge lịch sử vé cược, không đổi số dư — chặn đẩy ngược cùng lý do trên. Đây
+        // là điểm QUAN TRỌNG NHẤT trong 4 chỗ này: hàm này chạy trên cùng interval/focus với
+        // lúc người dùng vừa đặt cược/vé vừa tất toán — nếu không chặn, dễ ghi đè đúng lúc
+        // số dư vừa được trừ/cộng tiền thật sự (đã tái hiện và xác nhận trực tiếp: đặt cược
+        // trừ tiền thành công nhưng bị đồng bộ nền ghi số dư cũ đè lại ngay sau đó).
+        updateUserData(uid, { bets: mergedBets }, { skipRemotePush: true });
       }
     }
   } catch (e) {
@@ -417,7 +434,9 @@ export const useUserData = (userId) => {
         unsubRealtime = spSubscribeUserProfile(uid, (spProfile) => {
           if (spProfile) {
             if (typeof spProfile.balance === "number") {
-              updateUserData(uid, { balance: spProfile.balance });
+              // Chỉ đang mirror số dư Realtime từ Supabase vào cache — chặn đẩy ngược
+              // cùng lý do đã giải thích trong saveUserData.
+              updateUserData(uid, { balance: spProfile.balance }, { skipRemotePush: true });
             }
             if (spProfile.locked) {
               window.dispatchEvent(new Event("local-users-changed"));
