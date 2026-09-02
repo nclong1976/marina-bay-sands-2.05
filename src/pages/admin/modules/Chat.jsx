@@ -9,6 +9,7 @@ import { Panel, inputCls } from '../ui';
 import { useAuth } from '@/lib/AuthContext';
 import { useAdminChat } from '@/hooks/useAdminChat';
 import { useToast } from '@/components/ui/use-toast';
+import cskhAvatar from '@/assets/images/cskh_avatar.jpg';
 
 // ─── Thời gian tương đối — gọn hơn giờ:phút thô, dễ quét mắt trong danh sách ──
 const timeAgo = (dateStr) => {
@@ -26,14 +27,12 @@ const timeAgo = (dateStr) => {
 // ─── Avatar ──────────────────────────────────────────────────────────────────
 const Avatar = ({ name, role }) => {
   const isAdmin = role === 'admin' || role === 'super_admin';
+  if (isAdmin) {
+    return <img src={cskhAvatar} alt="CSKH" className="w-8 h-8 rounded-full object-cover shrink-0 shadow" />;
+  }
   const letter = (name || 'U').charAt(0).toUpperCase();
   return (
-    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold shadow
-      ${isAdmin
-        ? 'bg-gradient-to-br from-amber-400 to-orange-500'
-        : 'bg-gradient-to-br from-indigo-500 to-purple-600'
-      }`}
-    >
+    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold shadow bg-gradient-to-br from-indigo-500 to-purple-600">
       {letter}
     </div>
   );

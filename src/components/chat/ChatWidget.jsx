@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, X, Send, Loader2, ChevronDown, CheckCheck, Paperclip } from 'lucide-react';
 import { useConversationChat } from '@/hooks/useConversationChat';
 import { useAuth } from '@/lib/AuthContext';
+import cskhAvatar from '@/assets/images/cskh_avatar.jpg';
 
 const MAX_IMAGE_MB = 5;
 
@@ -13,9 +14,11 @@ const UserAvatar = () => (
 );
 
 const AdminAvatar = () => (
-  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-md">
-    <span className="text-white text-xs font-bold">CS</span>
-  </div>
+  <img
+    src={cskhAvatar}
+    alt="CSKH"
+    className="w-8 h-8 rounded-full object-cover shrink-0 shadow-md"
+  />
 );
 
 // ─── Typing Dots ─────────────────────────────────────────────────────────────
