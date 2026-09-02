@@ -162,9 +162,16 @@ export const localLogin = async ({ account, password }) => {
     try {
       const spUser = await spLoginUser({ account: acc, password });
       if (spUser) {
+        // QUAN TRỌNG: spUser.password_hash là chuỗi ĐÃ BĂM bcrypt (vd "$2b$10$..."), không
+        // phải mật khẩu gốc — verify_login() ở trên đã xác minh `password` (plaintext người
+        // dùng vừa nhập) khớp đúng với hash đó rồi. Nếu lưu password_hash vào cache cục bộ
+        // làm "found.password" như trước đây, dòng so sánh found.password !== password bên
+        // dưới sẽ SO SÁNH HASH VỚI PLAINTEXT — không bao giờ khớp — khiến tài khoản đã đăng
+        // ký/đăng nhập thành công trên thiết bị khác không thể đăng nhập lại trên thiết bị
+        // này (luôn báo "Mật khẩu không chính xác" dù đúng mật khẩu). Phải dùng plaintext.
         found = buildUser(spUser.account, {
           id: spUser.id,
-          password: spUser.password_hash || password,
+          password,
           payPassword: spUser.pay_password || "",
           fullName: spUser.full_name || spUser.account,
           role: spUser.role || "user",
