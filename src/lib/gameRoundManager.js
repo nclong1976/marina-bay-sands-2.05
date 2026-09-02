@@ -3,7 +3,7 @@ import { getGameConfig, getFastForwardState, clearFastForwardState } from "@/lib
 import { getUserData, updateUserData } from "./userData";
 import { pushNotification } from "./localNotifications";
 import { isSupabaseConfigured } from "./supabase";
-import { spSyncGameBet } from "./supabaseService";
+import { spSyncGameBet, spGetUserProfile } from "./supabaseService";
 
 // Fixed anchor epoch in seconds (e.g. 2026-01-01 00:00:00 UTC)
 const ANCHOR_TIME = 1767225600;
@@ -119,11 +119,19 @@ export function evaluateBetWin(itemLabel, drawn, config, itemKey) {
   return false;
 }
 
+// Khoá theo userId — hàm này giờ có 1 bước `await` (lấy số dư thật) trước khi ghi, nên
+// KHÔNG còn chạy trọn vẹn trong 1 tick JS như trước nữa. Nếu không khoá, 2 lượt gọi
+// chồng nhau cho CÙNG 1 user (vd. timer 1s trong màn chơi + timer 3s toàn cục cùng nổ
+// gần nhau) có thể cùng đọc thấy 1 vé đang PENDING (vì lượt đầu chưa kịp ghi xong), rồi
+// CẢ HAI cùng tính thắng thưởng cho đúng 1 vé đó — trả thưởng trùng lặp. Bản gốc (đồng
+// bộ hoàn toàn) không có nguy cơ này; khoá này giữ nguyên tính an toàn đó.
+const settlementInFlight = new Set();
+
 /**
  * Settles all expired pending bets for a user atomically with idempotency control and locked odds snapshots.
  */
-export function settlePendingBets(userId) {
-  if (!userId) return;
+export async function settlePendingBets(userId) {
+  if (!userId || settlementInFlight.has(userId)) return;
   const initialUserData = getUserData(userId);
   if (!initialUserData || !initialUserData.bets || initialUserData.bets.length === 0) return;
 
@@ -131,6 +139,26 @@ export function settlePendingBets(userId) {
     (b) => b.status === "PENDING" || b.status === "pending"
   );
   if (!hasPending) return;
+
+  settlementInFlight.add(userId);
+  try {
+  // Lấy số dư THẬT từ Supabase làm mốc TRƯỚC khi cộng/trừ tiền thắng-thua — hàm này chạy
+  // NỀN mỗi 3 giây cho MỌI người dùng đang đăng nhập (App.jsx GlobalBetSettler), nên nếu
+  // cứ dùng số dư trong cache cục bộ (có thể đang lỗi thời do Admin vừa cộng/trừ tiền,
+  // hoặc do cùng tài khoản đang mở ở thiết bị khác) làm mốc, số dư THẬT trên Supabase sẽ
+  // bị GHI ĐÈ bằng 1 con số sai chỉ vì có 1 vé cược vừa tất toán — bug đã tái hiện và xác
+  // nhận trực tiếp (số dư thật 500 bị ghi đè thành 999 chỉ vì 1 vé thua tất toán trong khi
+  // cache cục bộ đang giữ 999 lỗi thời). Chỉ fetch khi THẬT SỰ có vé cần tất toán, để không
+  // tốn thêm 1 lượt gọi Supabase mỗi 3 giây cho những người dùng không có vé đang chờ.
+  let authoritativeBalance = null;
+  if (isSupabaseConfigured()) {
+    try {
+      const spProfile = await spGetUserProfile(userId);
+      if (spProfile && typeof spProfile.balance === "number") {
+        authoritativeBalance = spProfile.balance;
+      }
+    } catch { /* ignore — rơi về cache cục bộ nếu Supabase lỗi/mất mạng */ }
+  }
 
   let notificationsToSend = [];
   let betsToSync = [];
@@ -217,7 +245,7 @@ export function settlePendingBets(userId) {
 
     if (!hasChanges) return latestDB;
 
-    const currentDBBalance = latestDB?.balance ?? 0;
+    const currentDBBalance = authoritativeBalance !== null ? authoritativeBalance : (latestDB?.balance ?? 0);
     const newBalance = +(currentDBBalance + totalWinnings).toFixed(2);
     const newProfit = +((latestDB?.profit ?? 0) + profitAdd).toFixed(2);
 
@@ -243,5 +271,8 @@ export function settlePendingBets(userId) {
   // Đẩy kết quả tất toán (thắng/thua) lên Supabase để mọi thiết bị thấy đúng lịch sử cược
   if (betsToSync.length > 0 && isSupabaseConfigured()) {
     betsToSync.forEach((b) => { spSyncGameBet(b).catch(() => {}); });
+  }
+  } finally {
+    settlementInFlight.delete(userId);
   }
 }
