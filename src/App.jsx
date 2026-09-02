@@ -23,6 +23,8 @@ import AdminApp from './pages/admin/AdminApp';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Splash from './pages/Splash';
+import { ChatUIProvider } from '@/lib/ChatUIContext';
+import ChatWidget from '@/components/chat/ChatWidget';
 
 import { useEffect } from 'react';
 import { settlePendingBets } from '@/lib/gameRoundManager';
@@ -73,7 +75,11 @@ const AuthenticatedApp = () => {
   }
 
   return (
-    <>
+    // ChatWidget mount DUY NHẤT ở đây, sống suốt phiên bất kể route — sửa lỗi
+    // đã ghi nhận trong audit: trước đây mount riêng ở từng trang (Home.jsx,
+    // ContainerAug4CodiaStudio2.jsx) khiến chuyển trang là khung chat tự đóng
+    // + phải tải lại lịch sử + badge chưa đọc nhấp nháy về 0.
+    <ChatUIProvider>
       <GlobalBetSettler />
       <Routes>
         <Route path="/" element={<Splash />} />
@@ -93,7 +99,8 @@ const AuthenticatedApp = () => {
         <Route path="/register" element={<Register />} />
         <Route path="*" element={<PageNotFound />} />
       </Routes>
-    </>
+      <ChatWidget />
+    </ChatUIProvider>
   );
 };
 

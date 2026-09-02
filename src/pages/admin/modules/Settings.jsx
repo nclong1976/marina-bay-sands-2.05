@@ -3,17 +3,51 @@ import { base44 } from "@/api/base44Client";
 import { useToast } from "@/components/ui/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Upload, Save } from "lucide-react";
+import { Upload, Save, Plus, Trash2, MessageSquare } from "lucide-react";
 import { Panel, inputCls } from "../ui";
 import { getBannerConfig, saveBannerConfig, extractZipArchive, readFileAsDataUrl } from "@/lib/bannerStore";
 import { getSiteSettings, saveSiteSettings, subscribeSiteSettings } from "@/lib/siteSettingsStore";
-import { spUploadFile } from "@/lib/supabaseService";
+import { spUploadFile, spSetAppSetting } from "@/lib/supabaseService";
+import { fetchSupportHours, fetchQuickReplies, saveQuickReply, deleteQuickReply } from "@/lib/messagingService";
 
 export default function Settings() {
   const { toast } = useToast();
   const [s, setS] = useState(() => getSiteSettings());
   const [halls, setHalls] = useState([]);
   const [bannerType, setBannerType] = useState("video");
+
+  // ── Chăm sóc khách hàng: giờ làm việc + mẫu tin nhắn nhanh ──────────
+  const [hours, setHours] = useState({ enabled: false, start: "09:00", end: "23:00" });
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [newReply, setNewReply] = useState({ title: "", body: "", shortcut: "" });
+
+  useEffect(() => {
+    fetchSupportHours().then(setHours);
+    fetchQuickReplies().then(setQuickReplies);
+  }, []);
+
+  const saveHours = async (next) => {
+    setHours(next);
+    await spSetAppSetting("support_hours", next);
+  };
+
+  const addQuickReply = async () => {
+    if (!newReply.title.trim() || !newReply.body.trim()) {
+      toast({ title: "Cần nhập tiêu đề và nội dung mẫu", variant: "destructive" });
+      return;
+    }
+    const saved = await saveQuickReply({ ...newReply, ownerAdminId: null });
+    if (saved) {
+      setQuickReplies((prev) => [...prev, saved]);
+      setNewReply({ title: "", body: "", shortcut: "" });
+      toast({ title: "Đã thêm mẫu tin nhắn nhanh" });
+    }
+  };
+
+  const removeQuickReply = async (id) => {
+    await deleteQuickReply(id);
+    setQuickReplies((prev) => prev.filter((q) => q.id !== id));
+  };
 
   // Cập nhật giao diện ngay khi cấu hình được kéo về từ Supabase (vd Admin khác vừa lưu)
   useEffect(() => {
@@ -196,6 +230,52 @@ export default function Settings() {
           </div>
         </Panel>
       </div>
+
+      <Panel className="p-4 space-y-3">
+        <p className="text-sm font-semibold flex items-center gap-1.5"><MessageSquare size={15} className="text-[#ffab40]" /> Chăm Sóc Khách Hàng</p>
+
+        <div className="flex items-center justify-between py-1">
+          <div>
+            <p className="text-sm text-white/80">Giờ làm việc CSKH</p>
+            <p className="text-[11px] text-white/40">Khi bật: ngoài khung giờ này, tin chào tự động sẽ báo khách "ngoài giờ hỗ trợ".</p>
+          </div>
+          <Switch checked={!!hours.enabled} onCheckedChange={(v) => saveHours({ ...hours, enabled: v })} />
+        </div>
+        {hours.enabled && (
+          <div className="flex items-center gap-2">
+            <input type="time" className={inputCls} value={hours.start} onChange={(e) => saveHours({ ...hours, start: e.target.value })} />
+            <span className="text-white/40 text-sm">đến</span>
+            <input type="time" className={inputCls} value={hours.end} onChange={(e) => saveHours({ ...hours, end: e.target.value })} />
+          </div>
+        )}
+
+        <div className="pt-2 border-t border-white/10">
+          <p className="text-sm font-semibold mb-2">Mẫu tin nhắn nhanh</p>
+          <div className="space-y-1.5 mb-3">
+            {quickReplies.length === 0 && <p className="text-white/40 text-sm">Chưa có mẫu nào</p>}
+            {quickReplies.map((q) => (
+              <div key={q.id} className="flex items-start justify-between gap-2 py-2 border-b border-white/5">
+                <div className="min-w-0">
+                  <p className="text-sm text-white/85">{q.title} {q.shortcut && <span className="text-[10px] text-white/30 font-mono ml-1">{q.shortcut}</span>}</p>
+                  <p className="text-[11px] text-white/40 truncate">{q.body}</p>
+                </div>
+                <button onClick={() => removeQuickReply(q.id)} className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 shrink-0" title="Xóa mẫu">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5 bg-white/[0.03] rounded-lg p-2.5">
+            <div className="flex gap-2">
+              <input className={inputCls} placeholder="Tiêu đề (vd: Chào khách)" value={newReply.title} onChange={(e) => setNewReply((p) => ({ ...p, title: e.target.value }))} />
+              <input className={`${inputCls} max-w-[120px]`} placeholder="/lệnh tắt" value={newReply.shortcut} onChange={(e) => setNewReply((p) => ({ ...p, shortcut: e.target.value }))} />
+            </div>
+            <textarea className={`${inputCls} h-16 py-2`} placeholder="Nội dung mẫu…" value={newReply.body} onChange={(e) => setNewReply((p) => ({ ...p, body: e.target.value }))} />
+            <Button size="sm" className="bg-white/10 hover:bg-white/15 text-white" onClick={addQuickReply}><Plus size={14} className="mr-1" /> Thêm mẫu</Button>
+          </div>
+        </div>
+      </Panel>
+
       <Button className="bg-gradient-to-r from-[#ffab40] to-[#e67e22] text-white font-bold" onClick={save}><Save size={16} className="mr-1" /> Lưu cài đặt</Button>
     </div>
   );

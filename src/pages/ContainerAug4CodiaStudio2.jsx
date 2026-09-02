@@ -15,12 +15,11 @@ import SettingsModal from "@/components/profile/SettingsModal";
 import BetHistoryModal from "@/components/profile/BetHistoryModal";
 import TxHistoryModal from "@/components/profile/TxHistoryModal";
 import LinkAccountModal from "@/components/profile/LinkAccountModal";
-import ChatWidget from "@/components/chat/ChatWidget";
 import WithdrawModal from "@/components/profile/WithdrawModal";
-import DepositModal from "@/components/profile/DepositModal";
 import { MIN_TURNOVER } from "@/components/profile/profileData";
 import { spCreateWithdrawRequest, spUpdateUser } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { useChatUI } from "@/lib/ChatUIContext";
 
 export default function ContainerAug4CodiaStudio2() {
   const navigate = useNavigate();
@@ -28,14 +27,10 @@ export default function ContainerAug4CodiaStudio2() {
   const { push } = useNotifications();
   const { user } = useAuth();
   const { data, update } = useUserData(user?.id);
+  const { unread: chatUnread, openChat } = useChatUI();
 
   const handleDeposit = () => {
-    handleDepositRequest({
-      user,
-      navigate,
-      toast,
-      openChat: () => setOpenChat(true),
-    });
+    handleDepositRequest({ user, navigate, toast, openChat });
   };
 
   const [hidden, setHidden] = useState(false);
@@ -44,9 +39,6 @@ export default function ContainerAug4CodiaStudio2() {
   const [txMode, setTxMode] = useState(null);
   const [openLink, setOpenLink] = useState(false);
   const [openWithdraw, setOpenWithdraw] = useState(false);
-  const [openChat, setOpenChat] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
-  const [openDeposit, setOpenDeposit] = useState(false);
 
   const balance = data.balance;
   const profit = data.profit;
@@ -151,7 +143,7 @@ export default function ContainerAug4CodiaStudio2() {
           />
 
           <ActionCards
-            onSupport={() => setOpenChat(true)}
+            onSupport={openChat}
             onDeposit={handleDeposit}
             onWithdraw={() => setOpenWithdraw(true)}
             unreadSupport={chatUnread}
@@ -167,7 +159,6 @@ export default function ContainerAug4CodiaStudio2() {
       <BetHistoryModal open={openBet} onOpenChange={setOpenBet} bets={bets} />
       <TxHistoryModal open={!!txMode} onOpenChange={(v) => !v && setTxMode(null)} txs={txs} mode={txMode || "both"} />
       <LinkAccountModal open={openLink} onOpenChange={setOpenLink} onAdd={addLinked} linked={linked} />
-      <ChatWidget open={openChat} onClose={() => setOpenChat(false)} onUnreadChange={setChatUnread} />
       <WithdrawModal
         open={openWithdraw}
         onOpenChange={setOpenWithdraw}
@@ -178,7 +169,6 @@ export default function ContainerAug4CodiaStudio2() {
         withdrawRequests={data.withdrawRequests || []}
         onSubmit={submitWithdraw}
       />
-      <DepositModal open={openDeposit} onOpenChange={setOpenDeposit} onOpenChat={() => setOpenChat(true)} />
     </main>
   );
 }
