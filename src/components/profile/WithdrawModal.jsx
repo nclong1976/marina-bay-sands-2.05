@@ -46,7 +46,7 @@ export default function WithdrawModal({ open, onOpenChange, balance, minTurnover
     setPinInvalid(false);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError("");
     setPinInvalid(false);
     if (!selected) return setError("Vui lòng chọn tài khoản ngân hàng");
@@ -59,16 +59,18 @@ export default function WithdrawModal({ open, onOpenChange, balance, minTurnover
       return setError("Mật khẩu rút tiền phải đủ 6 số");
     }
 
+    setSubmitting(true);
+
     // Xác minh PIN
-    const pinOk = verifyPayPassword(user?.id, pin);
+    const pinOk = await verifyPayPassword(user?.id, pin);
     if (!pinOk) {
       setPinInvalid(true);
       setPin("");
       pinRef.current?.focus();
+      setSubmitting(false);
       return setError("Mật khẩu rút tiền không đúng, vui lòng nhập lại");
     }
 
-    setSubmitting(true);
     // Tạo đơn rút tiền
     const reqId = "WD" + Date.now();
     const req = {
