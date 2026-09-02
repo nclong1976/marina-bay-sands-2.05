@@ -536,6 +536,39 @@ export const spSubscribeAllWithdrawRequests = subscribeShared(
 );
 
 /**
+ * Admin: lấy TOÀN BỘ giao dịch nạp tiền/điều chỉnh số dư (Admin cộng/trừ trực tiếp trên
+ * thẻ người dùng) — kèm join users_profile để hiển thị tên trong bảng Giao Dịch.
+ */
+export const spListAllTransactions = async (limit = 500) => {
+  if (!isSupabaseConfigured()) return null;
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('*, users_profile:user_id(account, full_name)')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) return null;
+  return data;
+};
+
+/**
+ * Realtime: báo cho Admin ngay khi có giao dịch nạp tiền/điều chỉnh số dư mới — để bảng
+ * Giao Dịch tự cập nhật dù giao dịch được tạo từ thiết bị Admin nào.
+ */
+export const spSubscribeAllTransactions = subscribeShared(
+  'public:transactions',
+  (emit) =>
+    supabase
+      .channel('public:transactions')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions' },
+        (payload) => emit(payload)
+      )
+      .subscribe()
+);
+
+/**
  * Admin: duyệt/từ chối đơn rút tiền — cập nhật trạng thái trên Supabase để mọi thiết bị
  * (kể cả thiết bị của người dùng gửi đơn) thấy đúng kết quả tức thì.
  */

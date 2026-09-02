@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
 import { useToast } from "@/components/ui/use-toast";
 import { Check, X, RefreshCw } from "lucide-react";
 import { Panel, TableWrap, Th, Td, Empty, Badge, inputCls, ConfirmDialog } from "../ui";
@@ -7,7 +6,10 @@ import { localListUsers } from "@/lib/localAuth";
 import { isSecretChatUser } from "@/lib/localChat";
 import { useAuth } from "@/lib/AuthContext";
 import { getUserData } from "@/lib/userData";
-import { spListAllWithdrawRequests, spSubscribeAllWithdrawRequests } from "@/lib/supabaseService";
+import {
+  spListAllWithdrawRequests, spSubscribeAllWithdrawRequests,
+  spListAllTransactions, spSubscribeAllTransactions,
+} from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { decideWithdrawRequest } from "@/lib/withdrawActions";
 
@@ -22,14 +24,29 @@ export default function Transactions() {
   const [fType, setFType] = useState("all");
   const [confirm, setConfirm] = useState(null);
 
-  // Load đơn rút tiền — Supabase là nguồn CHUẨN (thấy TẤT CẢ đơn dù người dùng gửi từ
-  // thiết bị nào); chỉ rơi về cache local per-user khi Supabase chưa cấu hình/lỗi.
+  // Load giao dịch nạp tiền/điều chỉnh số dư (Admin thao tác trực tiếp) + đơn rút tiền —
+  // Supabase là nguồn CHUẨN (thấy TẤT CẢ giao dịch dù tạo/gửi từ thiết bị nào); chỉ rơi
+  // về cache local per-user khi Supabase chưa cấu hình/lỗi.
   const load = async () => {
     let apiList = [];
-    try {
-      apiList = await base44.entities.Transaction.list("-created_date");
-    } catch {
-      apiList = [];
+    if (isSupabaseConfigured()) {
+      try {
+        const spTx = await spListAllTransactions();
+        if (Array.isArray(spTx)) {
+          apiList = spTx.map((t) => ({
+            id: t.id,
+            userEmail: t.users_profile?.full_name || t.users_profile?.account || t.user_id,
+            userId: t.user_id,
+            type: (t.type || "").toUpperCase().includes("WITHDRAW") ? "withdraw" : "deposit",
+            amount: Number(t.amount),
+            method: t.method || "Hệ thống",
+            status: t.status || "completed",
+            created_date: t.created_at,
+          }));
+        }
+      } catch {
+        apiList = [];
+      }
     }
 
     let requestList = [];
@@ -85,17 +102,20 @@ export default function Transactions() {
     setTxs(merged);
   };
 
-  // Realtime: hàng đợi rút tiền tự cập nhật khi có đơn mới/đổi trạng thái từ bất kỳ
-  // thiết bị nào (user gửi đơn, hoặc admin khác vừa duyệt/từ chối) — kèm poll 5s làm
-  // lưới an toàn phòng khi kết nối realtime rớt.
+  // Realtime: bảng tự cập nhật ngay khi có đơn rút mới/đổi trạng thái HOẶC giao dịch
+  // nạp tiền/điều chỉnh số dư mới, từ bất kỳ thiết bị nào (user gửi đơn, admin khác vừa
+  // duyệt/từ chối hoặc vừa cộng tiền) — kèm poll 5s làm lưới an toàn phòng khi kết nối
+  // realtime rớt.
   useEffect(() => {
     load();
     if (!isSupabaseConfigured()) return;
 
-    const unsub = spSubscribeAllWithdrawRequests(() => load());
+    const unsubWithdraw = spSubscribeAllWithdrawRequests(() => load());
+    const unsubTx = spSubscribeAllTransactions(() => load());
     const timer = setInterval(load, 5000);
     return () => {
-      unsub();
+      unsubWithdraw();
+      unsubTx();
       clearInterval(timer);
     };
   }, []);
@@ -112,21 +132,14 @@ export default function Transactions() {
     const { tx, status } = confirm;
 
     try {
-      // 1. Cập nhật nếu là Base44 transaction
-      if (tx.id && !tx.userId) {
-        await base44.entities.Transaction.update(tx.id, { status });
-      }
-
-      // 2. Cập nhật đơn rút tiền — dùng chung cơ chế duyệt/từ chối với thẻ người dùng ở
+      // Cập nhật đơn rút tiền — dùng chung cơ chế duyệt/từ chối với thẻ người dùng ở
       // trang Quản Lý Người Dùng, tránh hai nơi xử lý lệch logic hoàn tiền/thông báo.
-      if (tx.userId) {
-        await decideWithdrawRequest({
-          userId: tx.userId,
-          requestId: tx.id,
-          amount: tx.amount,
-          status: status === "completed" ? "approved" : "rejected",
-        });
-      }
+      await decideWithdrawRequest({
+        userId: tx.userId,
+        requestId: tx.id,
+        amount: tx.amount,
+        status: status === "completed" ? "approved" : "rejected",
+      });
 
       toast({
         title: status === "completed" ? "Đã duyệt đơn rút tiền" : "Đã từ chối đơn rút tiền",

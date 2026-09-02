@@ -10,7 +10,6 @@ import {
 import { useAuth } from "@/lib/AuthContext";
 import { verifyPayPassword } from "@/lib/localAuth";
 import { notifyAdmins } from "@/lib/localNotifications";
-import { playWithdrawalSound } from "@/lib/soundEffects";
 import EmptyState from "@/components/common/EmptyState";
 
 const STATUS_MAP = {
@@ -90,8 +89,6 @@ export default function WithdrawModal({ open, onOpenChange, balance, minTurnover
       userId: user?.id,
       userAccount: user?.account,
     });
-
-    playWithdrawalSound();
 
     onSubmit({ amount: numAmount, bank: selected, pin, requestId: reqId, request: req });
     setSubmitting(false);
