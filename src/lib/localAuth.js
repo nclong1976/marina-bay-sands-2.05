@@ -3,7 +3,7 @@
 
 import { getUserData, saveUserData, updateUserData, defaultUserData } from "@/lib/userData";
 import { base44 } from "@/api/base44Client";
-import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser, spGetUserProfile, spDeleteUser, spInsertNotifications } from "@/lib/supabaseService";
+import { spRegisterUser, spLoginUser, spAdjustBalance, spUpdateUser, spGetUserProfile, spDeleteUser, spInsertNotifications, spVerifyPayPassword } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { pushNotification } from "@/lib/localNotifications";
 
@@ -265,19 +265,42 @@ export const localListUsers = (viewerRole) => {
   });
 };
 
-// Xác minh mật khẩu rút tiền (payPassword) cho user hiện tại.
-export const verifyPayPassword = (userId, pin) => {
+// Xác minh mật khẩu rút tiền (payPassword) cho user hiện tại. Luôn ưu tiên xác minh qua
+// Supabase (RPC verify_pay_password, xử lý đúng cả pay_password đã bị bcrypt hoá bởi
+// trigger hash_user_secrets lẫn plaintext cũ) — cache cục bộ có thể đang chứa CHUỖI ĐÃ
+// BĂM thay vì plaintext (cùng dạng lỗi đã sửa ở localLogin cho mật khẩu đăng nhập, xảy
+// ra với tài khoản đăng nhập lần đầu trên thiết bị chưa từng lưu tài khoản đó), nên không
+// thể tin tưởng để so sánh trực tiếp bằng dấu ===. Chỉ rơi về so sánh cục bộ khi Supabase
+// chưa cấu hình hoặc mất mạng — đúng theo cùng nguyên tắc "Supabase là nguồn chuẩn" đã
+// dùng xuyên suốt các hàm khác trong file này.
+export const verifyPayPassword = async (userId, pin) => {
+  const users = readUsers();
+  const idx = users.findIndex((u) => u.id === userId);
+
+  if (isSupabaseConfigured() && userId) {
+    try {
+      const verified = await spVerifyPayPassword(userId, pin);
+      if (verified && idx !== -1) {
+        // Tự sửa cache cục bộ về đúng plaintext vừa được Supabase xác minh, để lần kiểm
+        // tra sau (kể cả khi mất mạng tạm thời) vẫn đúng mà không cần gọi lại Supabase.
+        users[idx].payPassword = pin;
+        writeUsers(users);
+      }
+      return verified;
+    } catch {
+      // Lỗi mạng/Supabase — rơi về kiểm tra cục bộ bên dưới thay vì chặn hẳn người dùng
+    }
+  }
+
   try {
-    const users = readUsers();
-    const user = users.find((u) => u.id === userId);
-    if (!user) {
+    if (idx === -1) {
       // Thử tài khoản default
       const session = localCurrentSession();
       const def = DEFAULT_ACCOUNTS.find((d) => d.account.toLowerCase() === session?.account?.toLowerCase());
       if (def) return def.payPassword === pin;
       return false;
     }
-    return user.payPassword === pin;
+    return users[idx].payPassword === pin;
   } catch {
     return false;
   }

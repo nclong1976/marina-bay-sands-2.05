@@ -155,6 +155,27 @@ export const spLoginUser = async ({ account, password }) => {
 };
 
 /**
+ * Xác minh mật khẩu thanh toán (pay_password) qua RPC verify_pay_password — cùng lý do
+ * dùng RPC như verify_login: pay_password có thể đã bị bcrypt hoá bởi trigger
+ * hash_user_secrets, so sánh chuỗi thô sẽ luôn sai với các tài khoản đã bị hash.
+ */
+export const spVerifyPayPassword = async (userId, pin) => {
+  if (!isSupabaseConfigured() || !userId) return false;
+
+  const { data, error } = await supabase.rpc('verify_pay_password', {
+    p_user_id: userId,
+    p_pin: pin,
+  });
+
+  if (error) {
+    console.error('Supabase verify_pay_password error:', error);
+    throw new Error(error.message || 'Không thể xác minh mật khẩu thanh toán');
+  }
+
+  return !!data;
+};
+
+/**
  * Fetch all users profile for Admin
  */
 export const spListUsers = async () => {
