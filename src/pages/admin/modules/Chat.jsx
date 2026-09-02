@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Search, Ghost, Trash2, MessageSquare,
-  Loader2, RefreshCw, CheckCheck, Clock, ChevronDown, Paperclip, X
+  Loader2, RefreshCw, CheckCheck, ChevronDown, ChevronLeft, Paperclip, X, Zap
 } from 'lucide-react';
 
 const MAX_IMAGE_MB = 5;
@@ -9,6 +9,19 @@ import { Panel, inputCls } from '../ui';
 import { useAuth } from '@/lib/AuthContext';
 import { useAdminChat } from '@/hooks/useAdminChat';
 import { useToast } from '@/components/ui/use-toast';
+
+// ─── Thời gian tương đối — gọn hơn giờ:phút thô, dễ quét mắt trong danh sách ──
+const timeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const min = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (min < 1) return 'Vừa xong';
+  if (min < 60) return `${min} phút`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} giờ`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} ngày`;
+  return new Date(dateStr).toLocaleDateString('vi-VN');
+};
 
 // ─── Avatar ──────────────────────────────────────────────────────────────────
 const Avatar = ({ name, role }) => {
@@ -103,9 +116,8 @@ const ConvItem = ({ conv, isActive, onClick }) => {
   const profile = conv.users_profile || {};
   const displayName = profile.full_name || profile.account || conv.user_id;
   const unread = conv.unread_admin || 0;
-  const lastTime = conv.last_message_at
-    ? new Date(conv.last_message_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-    : '';
+  const lastTime = conv.last_message_at ? timeAgo(conv.last_message_at) : '';
+  const lastTimeExact = conv.last_message_at ? new Date(conv.last_message_at).toLocaleString('vi-VN') : '';
 
   return (
     <button
@@ -117,9 +129,11 @@ const ConvItem = ({ conv, isActive, onClick }) => {
       <Avatar name={displayName} role="user" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1 mb-0.5">
-          <p className="text-sm font-medium text-white truncate">{displayName}</p>
+          <p className={`text-sm truncate ${unread > 0 ? 'font-semibold text-white' : 'font-medium text-white/90'}`}>
+            {displayName}
+          </p>
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] text-white/35">{lastTime}</span>
+            <span className="text-[10px] text-white/35" title={lastTimeExact}>{lastTime}</span>
             {unread > 0 && (
               <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center
                 text-[10px] font-bold text-white bg-red-500 rounded-full">
@@ -128,7 +142,9 @@ const ConvItem = ({ conv, isActive, onClick }) => {
             )}
           </div>
         </div>
-        <p className="text-[11px] text-white/40 truncate">{conv.last_message_body || 'Chưa có tin nhắn'}</p>
+        <p className={`text-[11px] truncate ${unread > 0 ? 'text-white/70' : 'text-white/40'}`}>
+          {conv.last_message_body || 'Chưa có tin nhắn'}
+        </p>
       </div>
     </button>
   );
@@ -180,6 +196,7 @@ export default function Chat() {
   const [text, setText] = useState('');
   const [q, setQ] = useState('');
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl }
   const [imageError, setImageError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -208,6 +225,7 @@ export default function Chat() {
       return null;
     });
     setImageError('');
+    setShowTemplates(false);
     setActiveConvId(convId, currentUser?.role);
   }, [setActiveConvId, currentUser?.role]);
 
@@ -306,40 +324,40 @@ export default function Chat() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-[#ffab40]" />
-            Chăm Sóc Khách Hàng — Live Chat
-            {isSuperAdmin && (
-              <span className="bg-[#7033ff]/20 text-[#ebd39a] border border-[#7033ff]/50 text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                <Ghost size={13} /> Super Admin
-              </span>
-            )}
-            {totalUnread > 0 && (
-              <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center text-xs font-bold text-white bg-red-500 rounded-full animate-pulse">
-                {totalUnread > 99 ? '99+' : totalUnread}
-              </span>
-            )}
-          </h1>
-          <p className="text-xs text-white/50 mt-0.5">
-            Realtime qua Supabase — Hội thoại 1-1 với từng khách hàng
-          </p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <MessageSquare className="w-5 h-5 text-[#ffab40] shrink-0" />
+          <h1 className="text-lg font-bold text-white truncate">Chăm Sóc Khách Hàng — Live Chat</h1>
+          {totalUnread > 0 && (
+            <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center text-[11px] font-bold text-white bg-red-500 rounded-full shrink-0">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
+          {isSuperAdmin && (
+            <span
+              title="Chế độ Super Admin"
+              className="hidden sm:flex items-center gap-1 shrink-0 bg-[#7033ff]/20 text-[#ebd39a] border border-[#7033ff]/50 text-[11px] px-2 py-0.5 rounded-full font-semibold"
+            >
+              <Ghost size={12} /> Super Admin
+            </span>
+          )}
         </div>
         <button
           onClick={refreshConversations}
-          className="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          className="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors shrink-0"
           title="Tải lại"
         >
           <RefreshCw size={15} className={isLoadingConvs ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      {/* 2-Column Layout */}
+      {/* 2-Column Layout — dưới lg chỉ hiện 1 cột tại 1 thời điểm (danh sách HOẶC khung
+          chat), tránh cả hai bị bóp chung vào 1 chiều cao cố định trên màn hẹp/máy tính
+          bảng, khiến khung tin nhắn gần như biến mất. */}
       <div className="grid lg:grid-cols-3 gap-4 h-[calc(100dvh-180px)] min-h-[480px]">
 
         {/* ── LEFT: Conversations List ────────────────────────── */}
-        <Panel className="lg:col-span-1 overflow-hidden flex flex-col">
+        <Panel className={`lg:col-span-1 overflow-hidden flex-col ${activeConvId ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search */}
           <div className="p-2.5 border-b border-white/10 shrink-0">
             <div className="relative">
@@ -380,7 +398,7 @@ export default function Chat() {
         </Panel>
 
         {/* ── RIGHT: Chat Thread ──────────────────────────────── */}
-        <Panel className="lg:col-span-2 overflow-hidden flex flex-col relative">
+        <Panel className={`lg:col-span-2 overflow-hidden flex-col relative ${activeConvId ? 'flex' : 'hidden lg:flex'}`}>
           {!activeConvId ? (
             /* Empty state */
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30">
@@ -395,17 +413,24 @@ export default function Chat() {
           ) : (
             <>
               {/* Thread Header */}
-              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
-                <div className="flex items-center gap-2.5">
+              <div className="px-3 sm:px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-white/[0.02] shrink-0">
+                <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                  <button
+                    onClick={() => handleSelectConv(null)}
+                    className="lg:hidden p-1.5 -ml-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+                    title="Quay lại danh sách"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
                   <Avatar name={activeName} role="user" />
-                  <div>
-                    <p className="text-sm font-semibold text-white">{activeName}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[11px] text-white/40">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{activeName}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-[11px] text-white/40 truncate">
                         {activeProfile.email || activeProfile.account || ''}
                       </p>
                       {activeConversation?.status === 'open' && (
-                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/30 shrink-0">
                           Mở
                         </span>
                       )}
@@ -413,7 +438,7 @@ export default function Chat() {
                   </div>
                 </div>
                 {isSuperAdmin && (
-                  <span className="text-[11px] text-white/30 flex items-center gap-1">
+                  <span className="text-[11px] text-white/30 flex items-center gap-1 shrink-0">
                     <Ghost size={12} /> Ghost Mode
                   </span>
                 )}
@@ -477,24 +502,35 @@ export default function Chat() {
                 </button>
               )}
 
-              {/* Quick Templates */}
-              <div className="px-3 py-2 bg-white/[0.03] border-t border-white/10 flex items-center gap-1.5 overflow-x-auto shrink-0">
-                <span className="text-[11px] font-semibold text-[#ffab40] shrink-0">Mẫu nhanh:</span>
-                {QUICK_TEMPLATES.map((tmpl, i) => (
-                  <button
-                    key={i}
-                    onClick={() => sendTemplate(tmpl.text)}
-                    className="shrink-0 text-xs bg-white/8 hover:bg-[#ffab40] text-white/80
-                      hover:text-black font-medium px-2.5 py-1 rounded-md border border-white/10
-                      transition-colors whitespace-nowrap"
-                  >
-                    {tmpl.label}
-                  </button>
-                ))}
-              </div>
-
               {/* Input Footer */}
-              <div className="px-3 py-3 border-t border-white/10 shrink-0">
+              <div className="px-3 py-3 border-t border-white/10 shrink-0 relative">
+                {/* Mẫu tin nhắn nhanh — bấm nút tia sét để mở, chọn 1 mẫu để gửi ngay.
+                    Gộp thành popover thay vì 1 hàng nút luôn chiếm chỗ, để khung nhập
+                    gọn gàng hơn và không ăn diện tích màn hình trên máy nhỏ. */}
+                {showTemplates && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowTemplates(false)} />
+                    <div className="absolute bottom-full left-3 mb-2 z-50 w-72 max-w-[calc(100%-1.5rem)]
+                      rounded-xl bg-[#161936] border border-white/10 shadow-2xl overflow-hidden">
+                      <p className="px-3 pt-2.5 pb-1.5 text-[11px] font-semibold text-[#ffab40]">
+                        Mẫu tin nhắn nhanh
+                      </p>
+                      <div className="max-h-64 overflow-y-auto pb-1">
+                        {QUICK_TEMPLATES.map((tmpl, i) => (
+                          <button
+                            key={i}
+                            onClick={() => { sendTemplate(tmpl.text); setShowTemplates(false); }}
+                            className="w-full text-left px-3 py-2 hover:bg-white/10 transition-colors"
+                          >
+                            <p className="text-sm text-white font-medium">{tmpl.label}</p>
+                            <p className="text-[11px] text-white/40 truncate">{tmpl.text}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 {/* Xem trước ảnh sắp gửi */}
                 {pendingImage && (
                   <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-2 py-2">
@@ -521,6 +557,14 @@ export default function Chat() {
                     className="hidden"
                     onChange={handlePickImage}
                   />
+                  <button
+                    onClick={() => setShowTemplates((v) => !v)}
+                    title="Mẫu tin nhắn nhanh"
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors
+                      ${showTemplates ? 'text-[#ffab40] bg-white/10' : 'text-white/50 hover:text-[#ffab40] hover:bg-white/10'}`}
+                  >
+                    <Zap size={16} />
+                  </button>
                   <button
                     id="admin-chat-attach"
                     onClick={() => fileInputRef.current?.click()}
