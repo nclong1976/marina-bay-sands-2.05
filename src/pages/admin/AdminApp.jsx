@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Lock } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import AdminShell from "@/components/admin/AdminShell";
+import AdminShell, { SUPER_ADMIN_ONLY_MODULES } from "@/components/admin/AdminShell";
 import Overview from "./modules/Overview";
 import Users from "./modules/Users";
 import GameHalls from "./modules/GameHalls";
@@ -28,6 +29,18 @@ const MODULES = {
   chat: Chat,
 };
 
+function AccessDenied() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+      <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+        <Lock className="w-6 h-6 text-white/40" />
+      </div>
+      <p className="text-white font-semibold">Không đủ quyền truy cập</p>
+      <p className="text-white/50 text-sm max-w-xs">Chỉ tài khoản Super Admin mới có quyền xem và thao tác ở mục này.</p>
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const { user, logout } = useAuth();
   const handleLogout = () => logout("/login");
@@ -45,7 +58,12 @@ export default function AdminApp() {
 function AdminAppInner({ user, onLogout }) {
   const { toast } = useToast();
   const [active, setActive] = useState("overview");
-  const Mod = MODULES[active] || Overview;
+  const isSuperAdmin = user?.role === "super_admin";
+  // Chặn ở tầng render (không chỉ ở menu điều hướng) — phòng trường hợp `active` bằng
+  // cách nào đó rơi vào 1 module giới hạn (vd. đổi quyền ngay giữa phiên) mà không đi
+  // qua click menu của AdminShell.
+  const isRestricted = SUPER_ADMIN_ONLY_MODULES.includes(active) && !isSuperAdmin;
+  const Mod = isRestricted ? AccessDenied : (MODULES[active] || Overview);
 
   const { totalUnread, conversations } = useAdminChatContext();
 

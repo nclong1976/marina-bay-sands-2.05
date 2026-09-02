@@ -1,8 +1,12 @@
 import React, { useState } from "react";
-import { LayoutDashboard, Users, Gamepad2, Ticket, ArrowLeftRight, Bell, Settings, LogOut, Menu, Shield, MessageSquare, Video, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Users, Gamepad2, Ticket, ArrowLeftRight, Bell, Settings, LogOut, Menu, Shield, MessageSquare, Video, ChevronLeft, ChevronRight, Lock } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 
 // Nhóm theo nghiệp vụ để dễ quét mắt hơn là 1 danh sách 9 mục liền mạch:
 // Tổng quan riêng · Vận hành (người dùng/sảnh/cược/giao dịch) · Nội dung (thông báo/banner/nhắn tin) · Hệ thống.
+// `restricted: true` — chỉ Super Admin mới được vào; admin thường thấy mục này kèm icon
+// khóa, bấm vào không điều hướng được (chặn ngay từ menu, không chỉ ẩn nút hành động
+// bên trong từng trang).
 const NAV_GROUPS = [
   [{ id: "overview", label: "Tổng quan", icon: LayoutDashboard }],
   [
@@ -12,16 +16,22 @@ const NAV_GROUPS = [
     { id: "transactions", label: "Giao dịch", icon: ArrowLeftRight },
   ],
   [
-    { id: "notifications", label: "Thông báo", icon: Bell },
-    { id: "banners", label: "Quản lý Banner", icon: Video },
+    { id: "notifications", label: "Thông báo", icon: Bell, restricted: true },
+    { id: "banners", label: "Quản lý Banner", icon: Video, restricted: true },
     { id: "chat", label: "Nhắn tin", icon: MessageSquare },
   ],
-  [{ id: "settings", label: "Cài đặt", icon: Settings }],
+  [{ id: "settings", label: "Cài đặt", icon: Settings, restricted: true }],
 ];
+
+export const SUPER_ADMIN_ONLY_MODULES = NAV_GROUPS.flat()
+  .filter((n) => n.restricted)
+  .map((n) => n.id);
 
 const COLLAPSE_KEY = "admin_sidebar_collapsed";
 
 export default function AdminShell({ active, onNavigate, user, onLogout, unread, children }) {
+  const { toast } = useToast();
+  const isSuperAdmin = user?.role === "super_admin";
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -30,7 +40,15 @@ export default function AdminShell({ active, onNavigate, user, onLogout, unread,
       return false;
     }
   });
-  const go = (id) => { onNavigate(id); setOpen(false); };
+  const go = (n) => {
+    if (n.restricted && !isSuperAdmin) {
+      toast({ title: "Không đủ quyền truy cập", description: `Chỉ Super Admin mới có quyền vào mục "${n.label}".`, variant: "destructive" });
+      setOpen(false);
+      return;
+    }
+    onNavigate(n.id);
+    setOpen(false);
+  };
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
       const next = !prev;
@@ -61,21 +79,25 @@ export default function AdminShell({ active, onNavigate, user, onLogout, unread,
             {group.map((n) => {
               const Icon = n.icon;
               const on = active === n.id;
+              const locked = n.restricted && !isSuperAdmin;
               return (
                 <button
                   key={n.id}
-                  onClick={() => go(n.id)}
-                  title={isCollapsed ? n.label : undefined}
+                  onClick={() => go(n)}
+                  title={locked ? `Chỉ Super Admin mới có quyền vào mục "${n.label}"` : (isCollapsed ? n.label : undefined)}
                   className={`w-full flex items-center gap-3 py-2 rounded-lg text-sm transition-colors border ${
                     isCollapsed ? "justify-center px-2" : "px-3"
                   } ${
-                    on
+                    locked
+                      ? "text-white/30 border-transparent cursor-not-allowed hover:bg-white/5"
+                      : on
                       ? "bg-gradient-to-r from-[#7033ff]/30 to-[#4b00ff]/20 text-white border-[#7033ff]/40"
                       : "text-white/65 hover:bg-white/5 hover:text-white border-transparent"
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  {!isCollapsed && <span className="truncate">{n.label}</span>}
+                  {!isCollapsed && <span className="truncate flex-1 text-left">{n.label}</span>}
+                  {!isCollapsed && locked && <Lock className="w-3.5 h-3.5 shrink-0 text-white/30" />}
                 </button>
               );
             })}
