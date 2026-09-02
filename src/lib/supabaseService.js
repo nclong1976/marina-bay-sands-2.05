@@ -265,8 +265,12 @@ export const spUpdateUser = async (userId, patch) => {
     .select()
     .maybeSingle();
 
+  // Ném lỗi thay vì chỉ log — các nơi gọi "bắn rồi quên" (.catch(() => {})) không bị ảnh
+  // hưởng, nhưng nơi nào thật sự `await` kết quả (vd. decideWithdrawRequest) giờ mới biết
+  // chính xác việc ghi lên Supabase có thành công hay không, thay vì âm thầm coi là thành công.
   if (error) {
     console.error('Supabase update user error:', error);
+    throw new Error(error.message || 'Không thể cập nhật thông tin người dùng trên Supabase');
   }
   return data;
 };

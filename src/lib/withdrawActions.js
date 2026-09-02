@@ -9,6 +9,7 @@ import {
   spUpdateWithdrawRequestStatus,
   spGetUserProfile,
   spInsertNotifications,
+  spUpdateUser,
 } from "@/lib/supabaseService";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
@@ -53,27 +54,38 @@ export async function listPendingWithdrawRequests() {
 // chuẩn đa thiết bị), hoàn tiền vào số dư nếu từ chối, và báo kết quả cho người dùng —
 // cả cục bộ (phản hồi tức thì) lẫn qua Supabase (để đến đúng thiết bị người dùng đã gửi).
 export async function decideWithdrawRequest({ userId, requestId, amount, status }) {
-  let authoritativeBalance = null;
+  let finalBalance = null;
+
+  // Luôn lấy số dư THẬT từ Supabase (cho cả "approved" lẫn "rejected") và GHI THẲNG lên
+  // Supabase TRƯỚC khi đụng đến cache cục bộ của Admin. Trước đây khi "approved", code
+  // không hề fetch số dư thật — nó lấy balance từ cache cục bộ (d.balance, đọc qua
+  // getUserData) rồi coi đó là "số dư mới" và ghi ĐÈ lên Supabase; nếu Admin chưa từng
+  // mở dữ liệu người dùng này trên chính máy mình, cache đó trống/lỗi thời, nên việc
+  // "Duyệt" một đơn rút vô tình GHI ĐÈ số dư THẬT của khách hàng bằng một con số sai —
+  // bug đã tái hiện và xác nhận trực tiếp trên production (số dư 175.10 bị ghi đè thành
+  // 999 chỉ vì "Duyệt" một đơn rút, do cache cục bộ đang giữ giá trị cũ).
   if (isSupabaseConfigured()) {
     await spUpdateWithdrawRequestStatus(requestId, status);
-    if (status === "rejected") {
-      try {
-        const spProfile = await spGetUserProfile(userId);
-        if (spProfile && typeof spProfile.balance === "number") {
-          authoritativeBalance = spProfile.balance;
-        }
-      } catch {
-        /* ignore */
-      }
+
+    const spProfile = await spGetUserProfile(userId);
+    if (!spProfile || typeof spProfile.balance !== "number") {
+      throw new Error("Không thể lấy số dư hiện tại để xử lý đơn rút tiền, vui lòng thử lại");
     }
+    const authoritativeBalance = spProfile.balance;
+    finalBalance = status === "rejected"
+      ? +(authoritativeBalance + amount).toFixed(2)
+      : authoritativeBalance;
+
+    await spUpdateUser(userId, { balance: finalBalance });
   }
 
   updateUserData(userId, (d) => {
     const updatedReqs = (d.withdrawRequests || []).map((r) =>
       r.id === requestId ? { ...r, status } : r
     );
-    const baseBalance = authoritativeBalance !== null ? authoritativeBalance : d.balance;
-    const nextBalance = status === "rejected" ? +(baseBalance + amount).toFixed(2) : baseBalance;
+    const nextBalance = finalBalance !== null
+      ? finalBalance
+      : (status === "rejected" ? +((d.balance || 0) + amount).toFixed(2) : d.balance);
 
     return {
       ...d,
