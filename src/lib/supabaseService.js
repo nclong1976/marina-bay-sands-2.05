@@ -198,8 +198,14 @@ export const spAdjustBalance = async (userId, newBalance, txData = null) => {
     .select()
     .single();
 
-  if (uErr) {
+  // Ném lỗi thay vì chỉ log rồi âm thầm bỏ qua — trước đây lỗi ở đây (mất mạng, RLS
+  // chặn, sai id...) bị nuốt hoàn toàn: số dư KHÔNG được cập nhật trên Supabase (nguồn
+  // dữ liệu chuẩn cho mọi thiết bị) nhưng cache cục bộ của Admin vẫn hiển thị số dư mới
+  // như thể đã thành công — khiến thao tác trừ/cộng tiền "biến mất" sau khi tải lại
+  // trang hoặc xem từ thiết bị khác, dù Admin thấy thông báo thành công.
+  if (uErr || !user) {
     console.error('Supabase balance update error:', uErr);
+    throw new Error(uErr?.message || 'Không thể cập nhật số dư trên Supabase');
   }
 
   if (txData) {

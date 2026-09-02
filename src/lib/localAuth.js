@@ -475,6 +475,38 @@ export const adminAdjustBalance = async (userId, amountInput, reasonInput = "", 
       : Math.max(0, currentBalance - amount);
     newBalance = +newBalance.toFixed(2);
 
+    // 3. Chuẩn bị bản ghi lịch sử giao dịch (Transaction Audit Log)
+    const txType = isAdd ? "ADMIN_DEPOSIT" : "ADMIN_WITHDRAW";
+    const auditReason = `[Admin Adjustment] ${cleanReason}`;
+    const newTx = {
+      id: "TX_ADM_" + Date.now().toString(36),
+      type: txType,
+      amount: amount,
+      status: "completed",
+      method: "Hệ thống Admin",
+      reason: auditReason,
+      time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) + " " + new Date().toLocaleDateString("vi-VN"),
+      created_date: new Date().toISOString(),
+    };
+
+    // Ghi lên Supabase (nguồn dữ liệu CHUẨN) TRƯỚC và ĐỢI kết quả — nếu Supabase có
+    // cấu hình mà bước này thất bại (mất mạng, RLS chặn...), phải NÉM LỖI ra ngoài ngay
+    // tại đây và DỪNG LẠI, không được ghi "số dư mới" vào cache cục bộ. Trước đây bước
+    // này chạy kiểu "bắn rồi quên" (không await, .catch(() => {})) nên khi nó thất bại,
+    // Admin vẫn thấy thông báo "Thành công" và cache cục bộ vẫn hiện số dư mới — trong
+    // khi số dư THẬT trên Supabase không hề đổi, khiến việc trừ/cộng tiền "biến mất"
+    // ngay khi tải lại trang hoặc xem từ thiết bị khác.
+    if (isSupabaseConfigured()) {
+      await spAdjustBalance(userId, newBalance, {
+        id: newTx.id,
+        type: txType,
+        amount: amount,
+        status: "completed",
+        method: "Hệ thống Admin",
+        reason: auditReason,
+      });
+    }
+
     // Cập nhật trong local_users
     if (idx !== -1) {
       users[idx].balance = newBalance;
@@ -494,37 +526,11 @@ export const adminAdjustBalance = async (userId, amountInput, reasonInput = "", 
       setSessionUser({ ...currentSession, balance: newBalance });
     }
 
-    // 3. Tự động chèn 1 bản ghi lịch sử giao dịch (Transaction Audit Log)
-    const txType = isAdd ? "ADMIN_DEPOSIT" : "ADMIN_WITHDRAW";
-    const auditReason = `[Admin Adjustment] ${cleanReason}`;
-    const newTx = {
-      id: "TX_ADM_" + Date.now().toString(36),
-      type: txType,
-      amount: amount,
-      status: "completed",
-      method: "Hệ thống Admin",
-      reason: auditReason,
-      time: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) + " " + new Date().toLocaleDateString("vi-VN"),
-      created_date: new Date().toISOString(),
-    };
-
     updateUserData(userId, (prev) => ({
       ...prev,
       balance: newBalance,
       txs: [newTx, ...(prev.txs || [])],
     }));
-
-    // Cố gắng đồng bộ lên CSDL Supabase
-    if (isSupabaseConfigured()) {
-      spAdjustBalance(userId, newBalance, {
-        id: newTx.id,
-        type: txType,
-        amount: amount,
-        status: "completed",
-        method: "Hệ thống Admin",
-        reason: auditReason,
-      }).catch(() => {});
-    }
 
     // Báo cho khách hàng biết Admin vừa cộng/trừ tiền vào tài khoản của họ — cả cục bộ
     // (phản hồi tức thì nếu đang cùng máy) lẫn qua Supabase (để đến đúng thiết bị khách
