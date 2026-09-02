@@ -71,6 +71,7 @@ export default function UserBankCard({
   const { toast } = useToast();
   const [flipped, setFlipped] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [bankCopied, setBankCopied] = useState(false);
   const bank = user.bankInfo;
   const isVip = user.role === "admin" || user.role === "super_admin";
   const cardNumber = toCardNumber(user);
@@ -86,6 +87,15 @@ export default function UserBankCard({
       setCopied(true);
       toast({ title: "Đã sao chép UID", description: user.id });
       setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+
+  // Sao chép nhanh số tài khoản ngân hàng — admin cần đối chiếu/chuyển khoản khi duyệt rút tiền.
+  const handleCopyBank = (accountNumber) => {
+    navigator.clipboard?.writeText(accountNumber).then(() => {
+      setBankCopied(true);
+      toast({ title: "Đã sao chép số tài khoản", description: accountNumber });
+      setTimeout(() => setBankCopied(false), 1500);
     }).catch(() => {});
   };
 
@@ -246,11 +256,21 @@ export default function UserBankCard({
               value={user.created_date ? new Date(user.created_date).toLocaleDateString("vi-VN") : "—"}
             />
             {bank?.bankName ? (
-              <Info
-                label="Ngân hàng rút"
-                value={`${bank.bankName} •••${bank.accountNumber?.slice(-4) || ""}`}
-                icon={<CreditCard className="w-3 h-3 text-emerald-400" />}
-              />
+              <>
+                <Info
+                  label="Ngân hàng rút"
+                  value={bank.bankName}
+                  icon={<CreditCard className="w-3 h-3 text-emerald-400" />}
+                />
+                <Info
+                  label="Số tài khoản"
+                  value={bank.accountNumber || "—"}
+                  mono
+                  onCopy={bank.accountNumber ? () => handleCopyBank(bank.accountNumber) : undefined}
+                  copied={bankCopied}
+                />
+                <Info label="Chủ tài khoản" value={bank.holder || "—"} />
+              </>
             ) : (
               <Info label="Ngân hàng rút" value="Chưa liên kết" muted />
             )}
