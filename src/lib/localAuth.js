@@ -531,8 +531,8 @@ export const adminAdjustBalance = async (userId, amountInput, reasonInput = "", 
     // hàng đang dùng, giống cơ chế thông báo duyệt/từ chối rút tiền).
     const notifTitle = isAdd ? "Nạp tiền thành công" : "Trừ tiền tài khoản";
     const notifBody = isAdd
-      ? `Hệ thống đã cộng thành công số tiền ${amount.toLocaleString()} USD vào tài khoản của quý khách. Lý do: ${cleanReason}`
-      : `Hệ thống đã trừ số tiền ${amount.toLocaleString()} USD từ tài khoản của quý khách. Lý do: ${cleanReason}`;
+      ? `Hệ thống đã cộng thành công số tiền ${amount.toLocaleString()} USD vào tài khoản của quý khách.`
+      : `Hệ thống đã trừ số tiền ${amount.toLocaleString()} USD từ tài khoản của quý khách.`;
     // Dùng CHUNG 1 id cho bản ghi cục bộ và bản ghi Supabase — để hydrateUserNotifications/
     // mergeRemoteNotification (khớp theo id) nhận ra đây là cùng 1 thông báo và không hiển
     // thị trùng lặp khi Admin và khách hàng đang mở chung 1 trình duyệt (chia sẻ localStorage).
