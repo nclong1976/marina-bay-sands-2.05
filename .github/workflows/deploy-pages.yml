@@ -37,9 +37,10 @@ jobs:
           VITE_BASE_PATH: ${{ vars.PAGES_CUSTOM_DOMAIN && '/' || format('/{0}/', github.event.repository.name) }}
           VITE_STATIC_HOSTING: 'true'
           # Publishable key là key công khai (vốn nằm trong bundle JS), nên để sẵn
-          # giá trị mặc định; secrets cùng tên (nếu có) sẽ ghi đè.
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://ljgbycowfcnqqigmjiwo.supabase.co' }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_7_waYk7QDH2E2FcK-JlSSQ_FWuo1NR2' }}
+          # giá trị mặc định. Secrets chỉ ghi đè khi có ĐỦ CẶP URL + key — một secret
+          # URL lẻ (vd. còn sót của project cũ) sẽ ghép sai với key mặc định.
+          VITE_SUPABASE_URL: ${{ (secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY) && secrets.VITE_SUPABASE_URL || 'https://ljgbycowfcnqqigmjiwo.supabase.co' }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_URL && (secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY) || 'sb_publishable_7_waYk7QDH2E2FcK-JlSSQ_FWuo1NR2' }}
           # Tuỳ chọn: URL server Socket.io (vd service Render) để bật realtime
           VITE_SOCKET_SERVER_URL: ${{ vars.VITE_SOCKET_SERVER_URL }}
           VITE_APP_NAME: Sands Club
