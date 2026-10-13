@@ -1,4 +1,5 @@
 import React from "react";
+import { withBase } from "@/lib/basePath";
 
 export class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -16,7 +17,7 @@ export class ErrorBoundary extends React.Component {
 
   handleReload = () => {
     this.setState({ hasError: false, error: null });
-    window.location.href = "/";
+    window.location.href = withBase("/");
   };
 
   handleClearCacheAndReload = () => {
@@ -24,7 +25,7 @@ export class ErrorBoundary extends React.Component {
       localStorage.clear();
       sessionStorage.clear();
     } catch { /* ignore */ }
-    window.location.href = "/";
+    window.location.href = withBase("/");
   };
 
   render() {

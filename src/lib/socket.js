@@ -12,15 +12,28 @@ const getSocketUrl = () => {
   return 'http://localhost:3000';
 };
 
+// GitHub Pages chỉ phục vụ file tĩnh — không có server Socket.io cùng origin.
+// Khi build cho Pages mà không trỏ VITE_SOCKET_SERVER_URL tới một server Node
+// (vd Render), tắt kết nối thay vì để client reconnect vô hạn vào chỗ không có gì.
+const isSocketDisabled = () => {
+  if (import.meta.env.VITE_SOCKET_SERVER_URL) return false;
+  if (import.meta.env.VITE_STATIC_HOSTING === 'true') return true;
+  return typeof window !== 'undefined' && /\.github\.io$/i.test(window.location?.hostname || '');
+};
+
 let socketInstance = null;
 
 export const getSocket = () => {
   if (!socketInstance) {
     const targetUrl = getSocketUrl();
     console.log(`🔌 [Socket.io Client] Connecting to Socket Server at: ${targetUrl}`);
+    const disabled = isSocketDisabled();
+    if (disabled) {
+      console.info('[Socket.io Client] Static hosting without VITE_SOCKET_SERVER_URL — realtime disabled');
+    }
     socketInstance = io(targetUrl, {
-      autoConnect: true,
-      reconnection: true,
+      autoConnect: !disabled,
+      reconnection: !disabled,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,

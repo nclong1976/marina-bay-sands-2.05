@@ -4,6 +4,7 @@ import { localCurrentSession, localClearSession, localListUsers } from '@/lib/lo
 import { toast } from '@/components/ui/use-toast';
 import { queryClientInstance } from '@/lib/query-client';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { withBase } from '@/lib/basePath';
 
 const AuthContext = createContext();
 
@@ -208,12 +209,12 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (redirectUrl) {
-      window.location.href = redirectUrl;
+      window.location.href = withBase(redirectUrl);
     }
   };
 
   const navigateToLogin = () => {
-    window.location.href = '/login';
+    window.location.href = withBase('/login');
   };
 
   return (
