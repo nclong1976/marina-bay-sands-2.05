@@ -107,6 +107,16 @@ connectivity is correct before you touch DNS.
 - Supabase RLS policies in `schema.sql` are currently **fully permissive** (`USING (true) WITH CHECK (true)` on every table) — any holder of the anon key can read/write any row directly via the Supabase REST API, bypassing the app entirely. This is fine for getting started, but before handling real money you should tighten RLS policies (e.g., restrict `users_profile` writes to the row's own `id`/`account`, restrict `game_bets`/`transactions` writes similarly) or move privileged writes (balance adjustments, user locks) behind a server-side endpoint using the Supabase **service role** key, which never ships to the browser.
 - `SUPABASE_SECRET_KEY` in `.env` is the service-role key — never expose it to the frontend (it isn't currently used by any `VITE_`-prefixed variable, which is correct; keep it that way).
 
+## 5b. Database setup (new Supabase project)
+
+Run in the Supabase SQL Editor, in order: `supabase/schema.sql`,
+`supabase/chat_migration.sql`, `supabase/messaging_v2_migration.sql`
+(sections 1–4 and 6; the section 5 backfill is only for projects migrating old chat
+data), then `supabase/auth_storage_migration.sql` (login/PIN RPCs, bcrypt
+trigger, `app-assets` bucket, realtime). On a fresh project skip the
+`DROP PUBLICATION`/`CREATE PUBLICATION` block at the end of `schema.sql` — the last
+file adds the tables to the existing `supabase_realtime` publication.
+
 ## 6. Deploy the frontend on GitHub Pages
 
 `.github/workflows/deploy-pages.yml` lints, builds and deploys `dist/` to GitHub
@@ -115,9 +125,10 @@ Pages on every push to `main` (pull requests only lint + build).
 ### One-time setup
 
 1. Repo **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**.
-2. Repo **Settings → Secrets and variables → Actions → Secrets**, add:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+2. Supabase: the workflow already builds against project `ljgbycowfcnqqigmjiwo`
+   with its publishable key (public by design, it ships in the JS bundle). To
+   point at a different project, add repo **Secrets** `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_PUBLISHABLE_KEY` — they override the defaults.
 3. Optional, same page → **Variables** tab:
    - `VITE_SOCKET_SERVER_URL` — URL of a running Socket.io server, e.g.
      `https://sands-club.onrender.com`. Without it, realtime (live chat push,
