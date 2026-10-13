@@ -115,9 +115,10 @@ Pages on every push to `main` (pull requests only lint + build).
 ### One-time setup
 
 1. Repo **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**.
-2. Repo **Settings → Secrets and variables → Actions → Secrets**, add:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+2. Supabase: the workflow already builds against project `ljgbycowfcnqqigmjiwo`
+   with its publishable key (public by design, it ships in the JS bundle). To
+   point at a different project, add repo **Secrets** `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_PUBLISHABLE_KEY` — they override the defaults.
 3. Optional, same page → **Variables** tab:
    - `VITE_SOCKET_SERVER_URL` — URL of a running Socket.io server, e.g.
      `https://sands-club.onrender.com`. Without it, realtime (live chat push,
