@@ -4,6 +4,9 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages phục vụ app dưới /<tên-repo>/ — workflow deploy-pages.yml đặt
+  // VITE_BASE_PATH tương ứng. Mặc định "/" cho Render / server Node.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     base44({
       // Support for legacy code that imports the base44 SDK with @/integrations, @/entities, etc.

@@ -11,11 +11,16 @@ inert with no `VITE_BASE44_APP_ID` set. The real stack is:
   same HTTP server for realtime features (chat, admin notifications, live odds)
 - **Database**: Supabase (already hosted externally — nothing to deploy for it)
 
-Because Socket.io needs a persistent connection, this **cannot** be hosted on a
-static-site host (Vercel static, Netlify, GitHub Pages) or on serverless
-functions. It needs a platform that runs a long-lived Node process.
+Because Socket.io needs a persistent connection, the Node server **cannot** be
+hosted on a static-site host (Vercel static, Netlify, GitHub Pages) or on
+serverless functions. It needs a platform that runs a long-lived Node process.
 
-This guide covers **Render**.
+Two supported setups:
+
+- **Render only** (sections 1–5): one service serves the frontend + Socket.io.
+- **GitHub Pages + optional Render** (section 6): GitHub Pages hosts the static
+  frontend, Supabase is the backend; realtime is on only if you point it at a
+  Socket.io server running elsewhere (e.g. the Render service).
 
 ## ⚠️ Free plan vs paid plan — read before choosing
 
@@ -101,6 +106,52 @@ connectivity is correct before you touch DNS.
 - The two seeded admin accounts (`leo1102` / `141219` and `admin` / `121212`, see `supabase/schema.sql`) use **hardcoded default passwords**. Change both passwords immediately after your first deploy (log in → Settings → change password), since anyone who reads this repo's schema file knows the defaults.
 - Supabase RLS policies in `schema.sql` are currently **fully permissive** (`USING (true) WITH CHECK (true)` on every table) — any holder of the anon key can read/write any row directly via the Supabase REST API, bypassing the app entirely. This is fine for getting started, but before handling real money you should tighten RLS policies (e.g., restrict `users_profile` writes to the row's own `id`/`account`, restrict `game_bets`/`transactions` writes similarly) or move privileged writes (balance adjustments, user locks) behind a server-side endpoint using the Supabase **service role** key, which never ships to the browser.
 - `SUPABASE_SECRET_KEY` in `.env` is the service-role key — never expose it to the frontend (it isn't currently used by any `VITE_`-prefixed variable, which is correct; keep it that way).
+
+## 6. Deploy the frontend on GitHub Pages
+
+`.github/workflows/deploy-pages.yml` lints, builds and deploys `dist/` to GitHub
+Pages on every push to `main` (pull requests only lint + build).
+
+### One-time setup
+
+1. Repo **Settings → Pages → Build and deployment → Source**: choose **GitHub Actions**.
+2. Repo **Settings → Secrets and variables → Actions → Secrets**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. Optional, same page → **Variables** tab:
+   - `VITE_SOCKET_SERVER_URL` — URL of a running Socket.io server, e.g.
+     `https://sands-club.onrender.com`. Without it, realtime (live chat push,
+     admin notifications, live odds sync) is turned off on Pages; everything
+     that goes through Supabase still works.
+   - `PAGES_CUSTOM_DOMAIN` — e.g. `app.sandsclub.com`. Without it the site is at
+     `https://<user>.github.io/<repo>/`.
+4. Push to `main` (or run the workflow manually from the **Actions** tab). The
+   deployed URL shows in the `deploy` job and under **Settings → Pages**.
+
+### How it works
+
+- `VITE_BASE_PATH` (set by the workflow to `/<repo>/`, or `/` with a custom
+  domain) becomes Vite's `base`; the router's `basename` and the
+  `window.location` redirects (`src/lib/basePath.js`) follow it.
+- GitHub Pages has no SPA rewrites, so the workflow copies `index.html` to
+  `404.html`; deep links like `/choi-game/...` load the app instead of a 404 page.
+- `VITE_STATIC_HOSTING=true` stops the Socket.io client from reconnecting
+  forever to a server that does not exist, unless `VITE_SOCKET_SERVER_URL` is set.
+
+### Custom domain on Pages
+
+Set the `PAGES_CUSTOM_DOMAIN` variable, redeploy, then add a **CNAME** record
+pointing your subdomain at `<user>.github.io` (for an apex domain use GitHub's
+A records, see GitHub's Pages docs). Enable **Enforce HTTPS** in Settings → Pages
+once the certificate is issued.
+
+### Test the Pages build locally
+
+```bash
+VITE_BASE_PATH=/marina-bay-sands-2.05/ VITE_STATIC_HOSTING=true npm run build
+VITE_BASE_PATH=/marina-bay-sands-2.05/ npm run preview
+# open http://localhost:4173/marina-bay-sands-2.05/
+```
 
 ## Rollback
 

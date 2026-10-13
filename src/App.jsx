@@ -28,6 +28,7 @@ import ChatWidget from '@/components/chat/ChatWidget';
 
 import { useEffect } from 'react';
 import { settlePendingBets } from '@/lib/gameRoundManager';
+import { BASE_PATH, stripBase } from '@/lib/basePath';
 
 const SocketQuerySyncInitializer = () => {
   const { user } = useAuth();
@@ -67,7 +68,7 @@ const AuthenticatedApp = () => {
       return <UserNotRegisteredError />;
     } else if (authError.type === 'auth_required') {
       const PUBLIC_ROUTES = ['/', '/login', '/register'];
-      if (!PUBLIC_ROUTES.includes(window.location.pathname)) {
+      if (!PUBLIC_ROUTES.includes(stripBase(window.location.pathname))) {
         navigateToLogin();
         return null;
       }
@@ -122,7 +123,7 @@ function App() {
         <I18nProvider>
           <NotificationProvider>
             <QueryClientProvider client={queryClientInstance}>
-              <Router>
+              <Router basename={BASE_PATH || undefined}>
                 <SocketQuerySyncInitializer />
                 <AuthenticatedApp />
               </Router>

@@ -1,3 +1,5 @@
+import { withBase } from '@/lib/basePath';
+
 /**
  * Handles deposit request by checking authentication, showing feedback toast,
  * and opening support chat.
@@ -14,7 +16,7 @@ export function handleDepositRequest({ user, navigate, toast, openChat }) {
     if (navigate) {
       navigate("/login");
     } else {
-      window.location.href = "/login";
+      window.location.href = withBase("/login");
     }
     return;
   }

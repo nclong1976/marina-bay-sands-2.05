@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - name: Build
+        env:
+          # Có custom domain (repo variable PAGES_CUSTOM_DOMAIN) thì app nằm ở "/",
+          # không thì GitHub Pages phục vụ dưới https://<user>.github.io/<repo>/
+          VITE_BASE_PATH: ${{ vars.PAGES_CUSTOM_DOMAIN && '/' || format('/{0}/', github.event.repository.name) }}
+          VITE_STATIC_HOSTING: 'true'
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Tuỳ chọn: URL server Socket.io (vd service Render) để bật realtime
+          VITE_SOCKET_SERVER_URL: ${{ vars.VITE_SOCKET_SERVER_URL }}
+          VITE_APP_NAME: Sands Club
+        run: npm run build
+
+      - name: SPA fallback and custom domain
+        env:
+          PAGES_CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+        run: |
+          # GitHub Pages không có rewrite — trả 404.html cho mọi deep link
+          # (/dashboard, /choi-game/...), nên dùng chính index.html làm 404.html
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
+          if [ -n "$PAGES_CUSTOM_DOMAIN" ]; then echo "$PAGES_CUSTOM_DOMAIN" > dist/CNAME; fi
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
