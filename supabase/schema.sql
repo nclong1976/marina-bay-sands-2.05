@@ -122,7 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON public.notifications(
 INSERT INTO public.users_profile (id, account, full_name, role, balance, pay_password, password_hash)
 VALUES 
     ('u_super_admin', 'leo1102', 'Super Admin', 'super_admin', 1000000000.00, '141219', '141219'),
-    ('u_admin_default', 'admin', 'Quản trị viên', 'admin', 1000000000.00, '121212', '121212')
+    ('u_admin_default', 'admin1', 'Quản trị viên', 'admin', 1000000000.00, '121212', '121212')
 ON CONFLICT (account) DO NOTHING;
 
 -- DISABLE RLS FOR EASE OF FRONTEND ACCESS (or grant full public access for demo/development)
