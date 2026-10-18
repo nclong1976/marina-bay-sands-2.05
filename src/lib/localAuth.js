@@ -198,6 +198,19 @@ export const localLogin = async ({ account, password }) => {
     throw new Error("Mật khẩu không chính xác");
   }
 
+  // Tài khoản bị khóa (kể cả Admin thường bị Super Admin khóa) không được đăng nhập.
+  // Ưu tiên trạng thái khóa trên Supabase vì cache cục bộ của thiết bị này có thể đã cũ.
+  let isLocked = !!found?.locked;
+  if (isSupabaseConfigured()) {
+    try {
+      const spProfile = await spGetUserProfile(found?.id || def?.id);
+      if (spProfile) isLocked = !!spProfile.locked;
+    } catch { /* mất mạng — dùng trạng thái trong cache */ }
+  }
+  if (isLocked) {
+    throw new Error("Tài khoản đã bị tạm khóa bởi QTV");
+  }
+
   const base = found || buildUser(def.account, {
     id: def.id,
     password: def.password,

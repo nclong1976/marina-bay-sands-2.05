@@ -227,8 +227,24 @@ export default function Users() {
   const pages = Math.max(1, Math.ceil(filteredUsers.length / PAGE));
   const pageRows = filteredUsers.slice(page * PAGE, page * PAGE + PAGE);
 
+  // Quyền khóa: Super Admin khóa được mọi tài khoản (kể cả Admin thường) trừ Super Admin;
+  // Admin thường chỉ khóa được người chơi, không khóa được tài khoản quản trị nào.
+  const canToggleLock = useCallback((u) => {
+    if (u.role === "super_admin") return false;
+    if (u.role === "admin") return currentUser?.role === "super_admin";
+    return true;
+  }, [currentUser?.role]);
+
   // Toggle account lock state with immediate force logout trigger
   const handleToggleLock = async (u) => {
+    if (!canToggleLock(u)) {
+      toast({
+        title: "Không đủ quyền",
+        description: "Chỉ Super Admin mới có thể khóa hoặc mở khóa tài khoản quản trị viên.",
+        variant: "destructive",
+      });
+      return;
+    }
     const nextLockedState = !u.locked;
     try {
       // Local Auth update
@@ -244,7 +260,7 @@ export default function Users() {
       toast({
         title: nextLockedState ? "🔒 Đã khóa tài khoản" : "🟢 Đã mở khóa tài khoản",
         description: nextLockedState
-          ? `Tài khoản ${u.account || u.email} đã bị khóa và chấm dứt phiên làm việc.`
+          ? `Tài khoản ${u.account || u.email}${u.role === "admin" ? " (Admin)" : ""} đã bị khóa và chấm dứt phiên làm việc.`
           : `Tài khoản ${u.account || u.email} đã được mở khóa hoạt động trở lại.`,
         variant: nextLockedState ? "destructive" : "default",
       });
@@ -400,6 +416,7 @@ export default function Users() {
                 onSub={(usr) => openBalanceModal(usr, "sub")}
                 onEdit={setEditUser}
                 onToggleLock={handleToggleLock}
+                canToggleLock={canToggleLock(u)}
                 onNotify={handleNotifyUser}
                 onDelete={setDelUser}
                 onApproveWithdraw={(usr, req) => setWithdrawConfirm({ user: usr, request: req, status: "approved" })}

@@ -4,6 +4,7 @@ import { localCurrentSession, localClearSession, localListUsers } from '@/lib/lo
 import { toast } from '@/components/ui/use-toast';
 import { queryClientInstance } from '@/lib/query-client';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { spGetUserProfile, spSubscribeUserProfile } from '@/lib/supabaseService';
 import { withBase } from '@/lib/basePath';
 
 const AuthContext = createContext();
@@ -143,6 +144,35 @@ export const AuthProvider = ({ children }) => {
       clearInterval(interval);
     };
   }, [user]);
+
+  // Admin thường bị Super Admin khóa: đọc trạng thái khóa thẳng từ Supabase (Realtime +
+  // kiểm tra định kỳ) để chấm dứt phiên quản trị ngay trên mọi thiết bị. Super Admin
+  // không bao giờ bị khóa.
+  useEffect(() => {
+    if (!user?.id || user.role !== "admin" || !isSupabaseConfigured()) return;
+
+    let stopped = false;
+    const kickIfLocked = (profile) => {
+      if (stopped || !profile?.locked) return;
+      stopped = true;
+      toast({
+        title: "Tài khoản quản trị bị khóa",
+        description: "Tài khoản của bạn đã bị Super Admin tạm khóa. Vui lòng liên hệ Super Admin.",
+        variant: "destructive",
+      });
+      logout('/login');
+    };
+    const check = () => spGetUserProfile(user.id).then(kickIfLocked).catch(() => {});
+
+    check();
+    const unsub = spSubscribeUserProfile(user.id, kickIfLocked);
+    const interval = setInterval(check, 5000);
+    return () => {
+      stopped = true;
+      unsub();
+      clearInterval(interval);
+    };
+  }, [user?.id, user?.role]);
 
   // Nhận cập nhật hồ sơ (tên, SĐT, ghi chú...) được đồng bộ từ Supabase (đa thiết bị)
   // qua syncFullAccountState trong userData.js, để hiển thị đúng dữ liệu mới nhất
