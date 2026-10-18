@@ -15,6 +15,10 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Tên miền chính thức. Repo variable PAGES_CUSTOM_DOMAIN (nếu có) sẽ ghi đè.
+  PAGES_CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN || 'sandsm8v6club.com' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,9 +36,9 @@ jobs:
 
       - name: Build
         env:
-          # Có custom domain (repo variable PAGES_CUSTOM_DOMAIN) thì app nằm ở "/",
-          # không thì GitHub Pages phục vụ dưới https://<user>.github.io/<repo>/
-          VITE_BASE_PATH: ${{ vars.PAGES_CUSTOM_DOMAIN && '/' || format('/{0}/', github.event.repository.name) }}
+          # Có custom domain thì app nằm ở "/", không thì GitHub Pages phục vụ
+          # dưới https://<user>.github.io/<repo>/
+          VITE_BASE_PATH: ${{ env.PAGES_CUSTOM_DOMAIN && '/' || format('/{0}/', github.event.repository.name) }}
           VITE_STATIC_HOSTING: 'true'
           # Publishable key là key công khai (vốn nằm trong bundle JS), nên để sẵn
           # giá trị mặc định. Secrets chỉ ghi đè khi có ĐỦ CẶP URL + key — một secret
@@ -47,8 +51,6 @@ jobs:
         run: npm run build
 
       - name: SPA fallback and custom domain
-        env:
-          PAGES_CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
         run: |
           # GitHub Pages không có rewrite — trả 404.html cho mọi deep link
           # (/dashboard, /choi-game/...), nên dùng chính index.html làm 404.html

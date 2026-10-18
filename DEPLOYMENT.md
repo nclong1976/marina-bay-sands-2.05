@@ -83,15 +83,8 @@ connectivity is correct before you touch DNS.
 
 ## 3. Point your domain at it
 
-The production domain is **`sandsm8v6club.com`** (plus `www.sandsm8v6club.com`). It is
-already declared under `domains:` in `render.yaml`, so a Blueprint sync adds both to the
-Render service; you only need to create the DNS records below at the registrar.
-
-| Host | Type | Value |
-|------|------|-------|
-| `sandsm8v6club.com` (`@`) | A (or ALIAS/ANAME) | the IP / target Render shows under **Settings → Custom Domains** |
-| `www` | CNAME | `<your-service>.onrender.com` |
-
+> The production domain `sandsm8v6club.com` is served from **GitHub Pages**, not Render —
+> see [Custom domain on Pages](#custom-domain-on-pages).
 
 1. In the Render service → **Settings → Custom Domains**, click **Add Custom Domain** and enter your domain (e.g. `sandsclub.com` or a subdomain like `app.sandsclub.com`).
 2. Render shows you the DNS record to add:
@@ -162,10 +155,27 @@ Pages on every push to `main` (pull requests only lint + build).
 
 ### Custom domain on Pages
 
-Set the `PAGES_CUSTOM_DOMAIN` variable, redeploy, then add a **CNAME** record
-pointing your subdomain at `<user>.github.io` (for an apex domain use GitHub's
-A records, see GitHub's Pages docs). Enable **Enforce HTTPS** in Settings → Pages
-once the certificate is issued.
+The workflow builds for **`sandsm8v6club.com`** by default (set the repo variable
+`PAGES_CUSTOM_DOMAIN` to override it). Because the app is then served at `/`, the
+old `https://<user>.github.io/<repo>/` address only works once the steps below are done
+(GitHub then redirects it to the custom domain).
+
+1. Repo **Settings → Pages → Custom domain**: enter `sandsm8v6club.com` and **Save**.
+   (With a GitHub Actions deployment GitHub ignores the `CNAME` file, so this step is required.)
+2. At the domain registrar, add these DNS records:
+
+   | Host | Type | Value |
+   |------|------|-------|
+   | `@` | A | `185.199.108.153` |
+   | `@` | A | `185.199.109.153` |
+   | `@` | A | `185.199.110.153` |
+   | `@` | A | `185.199.111.153` |
+   | `www` | CNAME | `nclong1976.github.io` |
+
+3. Wait for the DNS check in Settings → Pages to pass, then tick **Enforce HTTPS**.
+
+Realtime (Socket.io) is off on Pages unless the repo variable `VITE_SOCKET_SERVER_URL`
+points at a running Node server; everything that goes through Supabase still works.
 
 ### Test the Pages build locally
 
