@@ -63,6 +63,7 @@ export default function UserBankCard({
   onSub,
   onEdit,
   onToggleLock,
+  canToggleLock = true,
   onNotify,
   onDelete,
   onApproveWithdraw,
@@ -283,13 +284,15 @@ export default function UserBankCard({
               <FaceBtn title="Chỉnh sửa thông tin" onClick={() => onEdit(user)}>
                 <Edit2 className="w-3.5 h-3.5" />
               </FaceBtn>
-              <FaceBtn
-                title={user.locked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
-                tone={user.locked ? "green" : "red"}
-                onClick={() => onToggleLock(user)}
-              >
-                {user.locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-              </FaceBtn>
+              {canToggleLock && (
+                <FaceBtn
+                  title={user.locked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+                  tone={user.locked ? "green" : "red"}
+                  onClick={() => onToggleLock(user)}
+                >
+                  {user.locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                </FaceBtn>
+              )}
               <FaceBtn title="Gửi thông báo" onClick={() => onNotify(user)}>
                 <Bell className="w-3.5 h-3.5" />
               </FaceBtn>
