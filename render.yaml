@@ -7,6 +7,10 @@ services:
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
+    # Tên miền riêng — Render chỉ cấp HTTPS sau khi DNS đã trỏ về service (xem DEPLOYMENT.md mục 3)
+    domains:
+      - sandsm8v6club.com
+      - www.sandsm8v6club.com
     envVars:
       - key: NODE_ENV
         value: production

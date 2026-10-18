@@ -83,6 +83,16 @@ connectivity is correct before you touch DNS.
 
 ## 3. Point your domain at it
 
+The production domain is **`sandsm8v6club.com`** (plus `www.sandsm8v6club.com`). It is
+already declared under `domains:` in `render.yaml`, so a Blueprint sync adds both to the
+Render service; you only need to create the DNS records below at the registrar.
+
+| Host | Type | Value |
+|------|------|-------|
+| `sandsm8v6club.com` (`@`) | A (or ALIAS/ANAME) | the IP / target Render shows under **Settings → Custom Domains** |
+| `www` | CNAME | `<your-service>.onrender.com` |
+
+
 1. In the Render service → **Settings → Custom Domains**, click **Add Custom Domain** and enter your domain (e.g. `sandsclub.com` or a subdomain like `app.sandsclub.com`).
 2. Render shows you the DNS record to add:
    - **Subdomain** (e.g. `app.sandsclub.com`): a **CNAME** record pointing at your service's `onrender.com` hostname.
