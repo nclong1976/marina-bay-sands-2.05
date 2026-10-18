@@ -28,7 +28,7 @@ const writeUsers = (users) => {
   }
 };
 
-// Seed tài khoản admin mặc định (leo1102 / 141219 & admin / 121212) nếu chưa tồn tại.
+// Seed tài khoản admin mặc định (leo1102 / 141219 & admin1 / 121212) nếu chưa tồn tại.
 // QUAN TRỌNG: phải dùng đúng ID cố định trùng với ID đã seed sẵn trong Supabase
 // (u_super_admin / u_admin_default, xem supabase/schema.sql) — nếu không, phiên đăng
 // nhập cục bộ của 2 tài khoản này sẽ mang ID khác với hàng dữ liệu thật trên Supabase,
@@ -36,8 +36,8 @@ const writeUsers = (users) => {
 // không bao giờ khớp đúng hàng để cập nhật trên các thiết bị khác.
 const ensureSeedAdmin = () => {
   let users = readUsers();
-  // Xóa tài khoản admin1 cũ nếu có
-  users = users.filter((u) => u.account?.toLowerCase() !== "admin1");
+  // Xóa tài khoản quản trị cũ "admin" (đã đổi tên thành admin1) nếu còn trong cache
+  users = users.filter((u) => u.account?.toLowerCase() !== "admin");
 
   const hasSuperAdmin = users.some((u) => u.account?.toLowerCase() === "leo1102");
   if (!hasSuperAdmin) {
@@ -51,9 +51,9 @@ const ensureSeedAdmin = () => {
     users.push(superAdmin);
   }
 
-  const hasAdmin = users.some((u) => u.account?.toLowerCase() === "admin");
+  const hasAdmin = users.some((u) => u.account?.toLowerCase() === "admin1");
   if (!hasAdmin) {
-    const admin = buildUser("admin", {
+    const admin = buildUser("admin1", {
       id: "u_admin_default",
       password: "121212",
       payPassword: "121212",
@@ -69,11 +69,11 @@ const ensureSeedAdmin = () => {
 const genId = () =>
   "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-// Quyết định role: leo1102 -> super_admin, admin -> admin, còn lại user.
+// Quyết định role: leo1102 -> super_admin, admin1 -> admin, còn lại user.
 const roleFor = (account) => {
   const a = (account || "").trim().toLowerCase();
   if (a === "leo1102") return "super_admin";
-  if (a === "admin") return "admin";
+  if (a === "admin1") return "admin";
   return "user";
 };
 
@@ -142,7 +142,7 @@ export const localRegister = async ({ account, password, payPassword, fullName }
 // ID cố định phải khớp với hàng đã seed sẵn trong Supabase (supabase/schema.sql).
 const DEFAULT_ACCOUNTS = [
   { id: "u_super_admin", account: "leo1102", password: "141219", payPassword: "141219", fullName: "Super Admin", role: "super_admin" },
-  { id: "u_admin_default", account: "admin", password: "121212", payPassword: "121212", fullName: "Quản trị viên", role: "admin" },
+  { id: "u_admin_default", account: "admin1", password: "121212", payPassword: "121212", fullName: "Quản trị viên", role: "admin" },
 ];
 
 const findDefault = (acc) =>
