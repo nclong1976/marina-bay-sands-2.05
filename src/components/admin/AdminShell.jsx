@@ -16,11 +16,11 @@ const NAV_GROUPS = [
     { id: "transactions", label: "Giao dịch", icon: ArrowLeftRight },
   ],
   [
-    { id: "notifications", label: "Thông báo", icon: Bell, restricted: true },
-    { id: "banners", label: "Quản lý Banner", icon: Video, restricted: true },
+    { id: "notifications", label: "Thông báo", icon: Bell },
+    { id: "banners", label: "Quản lý Banner", icon: Video },
     { id: "chat", label: "Nhắn tin", icon: MessageSquare },
   ],
-  [{ id: "settings", label: "Cài đặt", icon: Settings, restricted: true }],
+  [{ id: "settings", label: "Cài đặt", icon: Settings }],
 ];
 
 export const SUPER_ADMIN_ONLY_MODULES = NAV_GROUPS.flat()
