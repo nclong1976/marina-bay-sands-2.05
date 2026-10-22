@@ -2,67 +2,14 @@ import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Smartphone, Monitor, Tablet, ShieldCheck, KeyRound, Lock } from "lucide-react";
+import { ShieldCheck, KeyRound, Lock } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { updatePassword, updatePayPassword } from "@/lib/localAuth";
-
-// Phát hiện thiết bị và trình duyệt thực tế hiện tại
-const detectCurrentDevice = () => {
-  const ua = navigator.userAgent;
-  let os = "Thiết bị không xác định";
-  let icon = Monitor;
-
-  if (/android/i.test(ua)) {
-    os = "Android Mobile";
-    icon = Smartphone;
-  } else if (/iPhone/i.test(ua)) {
-    os = "iPhone (iOS)";
-    icon = Smartphone;
-  } else if (/iPad/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
-    os = "iPad (iPadOS)";
-    icon = Tablet;
-  } else if (/Windows/i.test(ua)) {
-    os = "Windows PC";
-    icon = Monitor;
-  } else if (/Macintosh|Mac OS/i.test(ua)) {
-    os = "Mac (macOS)";
-    icon = Monitor;
-  } else if (/Linux/i.test(ua)) {
-    os = "Linux PC";
-    icon = Monitor;
-  }
-
-  let browser = "Web Browser";
-  if (/edg/i.test(ua)) browser = "Microsoft Edge";
-  else if (/chrome|crios/i.test(ua)) browser = "Google Chrome";
-  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = "Apple Safari";
-  else if (/firefox|fxios/i.test(ua)) browser = "Mozilla Firefox";
-
-  return {
-    id: "dev_current",
-    name: `${os} · ${browser}`,
-    icon,
-    current: true,
-    time: "Đang hoạt động",
-  };
-};
 
 export default function SettingsModal({ open, onOpenChange, onToast }) {
   const { user } = useAuth();
   const [pw, setPw] = useState({ cur: "", new: "", confirm: "" });
   const [pin, setPin] = useState({ cur: "", new: "" });
-  const [devices, setDevices] = useState([]);
-
-  // Cập nhật danh sách thiết bị khi mở modal
-  useEffect(() => {
-    if (open) {
-      const currentDev = detectCurrentDevice();
-      setDevices([
-        currentDev,
-        { id: "dev_secondary", name: "Phiên đăng nhập khác (Web)", icon: Smartphone, current: false, time: "2 giờ trước" },
-      ]);
-    }
-  }, [open]);
 
   const submitPw = () => {
     if (!pw.cur || !pw.new) return onToast({ title: "Vui lòng nhập đầy đủ mật khẩu", variant: "destructive" });
@@ -88,10 +35,6 @@ export default function SettingsModal({ open, onOpenChange, onToast }) {
     setPin({ cur: "", new: "" });
   };
 
-  const revoke = (d) => {
-    setDevices((ds) => ds.filter((x) => x.id !== d.id));
-    onToast({ title: "Đã thu hồi phiên đăng nhập", description: d.name });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -180,42 +123,6 @@ export default function SettingsModal({ open, onOpenChange, onToast }) {
             </Button>
           </div>
 
-          {/* Quản lý thiết bị đăng nhập thực tế */}
-          <div className="bg-[#2a2040] rounded-xl p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-[#bd9c59]">Quản lý thiết bị</span>
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium">Tự động phát hiện</span>
-            </div>
-            <div className="space-y-2">
-              {devices.map((d) => {
-                const Icon = d.icon;
-                return (
-                  <div key={d.id} className="flex items-center gap-3 bg-[#1e1832] rounded-xl p-3 border border-white/5">
-                    <div className="p-2 rounded-lg bg-[#bd9c59]/10 text-[#bd9c59]">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white truncate flex items-center gap-1.5">
-                        {d.name}
-                        {d.current && (
-                          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-400/15 px-1.5 py-0.5 rounded">Hiện tại</span>
-                        )}
-                      </p>
-                      <p className="text-[10px] text-white/40 mt-0.5">{d.time}</p>
-                    </div>
-                    {!d.current && (
-                      <button
-                        onClick={() => revoke(d)}
-                        className="text-xs text-red-400 hover:text-red-300 font-medium px-2 py-1 rounded hover:bg-red-500/10 transition-colors shrink-0"
-                      >
-                        Đăng xuất
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
 
         </div>
 
