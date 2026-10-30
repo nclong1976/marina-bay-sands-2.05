@@ -43,11 +43,25 @@ const GlobalBetSettler = () => {
   const { user } = useAuth();
   useEffect(() => {
     if (!user?.id) return;
-    settlePendingBets(user.id);
-    const timer = setInterval(() => {
-      settlePendingBets(user.id);
-    }, 3000);
-    return () => clearInterval(timer);
+    let isMounted = true;
+    let isSettling = false;
+
+    const runSettlement = async () => {
+      if (!isMounted || isSettling) return;
+      isSettling = true;
+      try {
+        await settlePendingBets(user.id);
+      } finally {
+        isSettling = false;
+      }
+    };
+
+    runSettlement();
+    const timer = setInterval(runSettlement, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
   }, [user?.id]);
   return null;
 };

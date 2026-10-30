@@ -270,7 +270,7 @@ export async function settlePendingBets(userId) {
 
   // Đẩy kết quả tất toán (thắng/thua) lên Supabase để mọi thiết bị thấy đúng lịch sử cược
   if (betsToSync.length > 0 && isSupabaseConfigured()) {
-    betsToSync.forEach((b) => { spSyncGameBet(b).catch(() => {}); });
+    await Promise.all(betsToSync.map((b) => spSyncGameBet(b).catch(() => {})));
   }
   } finally {
     settlementInFlight.delete(userId);
