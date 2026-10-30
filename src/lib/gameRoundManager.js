@@ -189,6 +189,7 @@ export async function settlePendingBets(userId) {
 
         if (won) {
           const payout = +(bet.amount * lockedOdds).toFixed(2);
+          console.log(`[BET_WIN] period=${bet.period}, key=${bet.key}, label=${bet.label}, amount=$${bet.amount}, odds=${lockedOdds}, payout=$${payout}`);
           totalWinnings += payout;
           profitAdd += (payout - bet.amount);
 
@@ -220,6 +221,7 @@ export async function settlePendingBets(userId) {
           betsToSync.push(settledWinBet);
           return settledWinBet;
         } else {
+          console.log(`[BET_LOSS] period=${bet.period}, key=${bet.key}, label=${bet.label}, amount=$${bet.amount}, odds=${lockedOdds}`);
           profitAdd -= bet.amount;
           notificationsToSend.push({
             type: "result",
@@ -248,6 +250,8 @@ export async function settlePendingBets(userId) {
     const currentDBBalance = authoritativeBalance !== null ? authoritativeBalance : (latestDB?.balance ?? 0);
     const newBalance = +(currentDBBalance + totalWinnings).toFixed(2);
     const newProfit = +((latestDB?.profit ?? 0) + profitAdd).toFixed(2);
+
+    console.log(`[SETTLEMENT_SUMMARY] userId=${userId}, currentBalance=$${currentDBBalance}, totalWinnings=$${totalWinnings}, profitAdd=$${profitAdd}, newBalance=$${newBalance}`);
 
     return {
       ...latestDB,
