@@ -187,15 +187,44 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
   const mm = String(Math.floor(countdown / 60)).padStart(2, "0");
   const ss = String(countdown % 60).padStart(2, "0");
 
+  const isMutuallyExclusive = useCallback((key1, label1, key2, label2) => {
+    const mutualPairs = [
+      ["LON_NORMAL", "NHO_NORMAL"],
+      ["Lớn", "Nhỏ"],
+      ["DON_NORMAL", "DOI_NORMAL"],
+      ["Đơn", "Đôi"],
+      ["LON_EXTREME", "NHO_EXTREME"],
+      ["Cực Lớn", "Cực nhỏ"],
+    ];
+    for (const [a, b] of mutualPairs) {
+      if ((key1 === a && key2 === b) || (key1 === b && key2 === a) ||
+          (label1 === a && label2 === b) || (label1 === b && label2 === a)) {
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
   const toggleCell = useCallback((tabId, tabLabel, item) => {
     const itemKey = item.key || item.label;
     const currentOdds = getEffectiveOdds(item);
     setSelectedCells((prev) => {
       const exists = prev.find((s) => s.tabId === tabId && (s.key ? s.key === itemKey : s.label === item.label));
       if (exists) return prev.filter((s) => !(s.tabId === tabId && (s.key ? s.key === itemKey : s.label === item.label)));
+
+      const conflictingCell = prev.find((s) => s.tabId === tabId && isMutuallyExclusive(itemKey, item.label, s.key, s.label));
+      if (conflictingCell) {
+        toast({
+          title: "Lựa chọn xung đột",
+          description: `Không thể đặt cược vào cả "${conflictingCell.label}" và "${item.label}" cùng lúc (quy tắc trò chơi chỉ cho phép thắng 1 bên)`,
+          variant: "destructive"
+        });
+        return prev;
+      }
+
       return [...prev, { tabId, tabLabel, key: itemKey, label: item.label, odds: currentOdds }];
     });
-  }, [getEffectiveOdds]);
+  }, [getEffectiveOdds, isMutuallyExclusive, toast]);
 
   const statusText = tickets.length > 0
     ? `Đã thêm ${tickets.length} vé cược`
@@ -207,6 +236,22 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
     if (bettingClosed) return;
     if (selectedCells.length === 0) { toast({ title: "Chưa chọn cách chơi", variant: "destructive" }); return; }
     if (!betAmount || betAmount <= 0) { toast({ title: "Chưa nhập tiền cược", variant: "destructive" }); return; }
+
+    // Kiểm tra xung đột với vé cược hiện tại
+    const allCells = [...tickets.map(t => ({ key: t.key, label: t.label })), ...selectedCells];
+    for (let i = 0; i < allCells.length; i++) {
+      for (let j = i + 1; j < allCells.length; j++) {
+        if (isMutuallyExclusive(allCells[i].key, allCells[i].label, allCells[j].key, allCells[j].label)) {
+          toast({
+            title: "Lựa chọn xung đột",
+            description: `Không thể đặt cược vào cả "${allCells[i].label}" và "${allCells[j].label}" (quy tắc trò chơi chỉ cho phép thắng 1 bên)`,
+            variant: "destructive"
+          });
+          return;
+        }
+      }
+    }
+
     setTickets((prev) => [...prev, ...selectedCells.map((s) => ({ ...s, amount: betAmount }))]);
     setSelectedCells([]);
     toast({ title: "Thêm vé thành công", description: `+${selectedCells.length} lựa chọn` });
@@ -305,6 +350,20 @@ export default function GamePlayScreen({ gameId, tier, variantId }) {
       if (amt > maxBetLimit) {
         toast({ title: "Hạn mức không hợp lệ", description: `Mức cược tối đa cho mỗi vé là $${maxBetLimit} USD`, variant: "destructive" });
         return;
+      }
+    }
+
+    // Kiểm tra xung đột quy tắc trò chơi (chỉ được thắng 1 bên)
+    for (let i = 0; i < toSubmit.length; i++) {
+      for (let j = i + 1; j < toSubmit.length; j++) {
+        if (isMutuallyExclusive(toSubmit[i].key, toSubmit[i].label, toSubmit[j].key, toSubmit[j].label)) {
+          toast({
+            title: "Lựa chọn xung đột",
+            description: `Không thể đặt cược vào cả "${toSubmit[i].label}" và "${toSubmit[j].label}" cùng lúc (quy tắc trò chơi chỉ cho phép thắng 1 bên)`,
+            variant: "destructive"
+          });
+          return;
+        }
       }
     }
 
